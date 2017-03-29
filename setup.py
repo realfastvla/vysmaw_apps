@@ -4,9 +4,11 @@ from Cython.Build import cythonize
 
 extensions = [
     Extension("*", ["*.pyx"],
-        include_dirs = ["/home/cbe-master/realfast/anaconda/include", "/home/cbe-master/realfast/anaconda/include/python2.7"],
         libraries = ["vysmaw", "vys", "python2.7"],
-        library_dirs = ["/home/cbe-master/realfast/anaconda/lib/python2.7/site-packages"],)
+        include_dirs = ["/opt/cbe-local/include"],
+        library_dirs = ["/opt/cbe-local/lib"],)
+#        include_dirs = ["/home/cbe-master/realfast/anaconda/include", "/home/cbe-master/realfast/anaconda/include/python2.7"],
+#        library_dirs = ["/home/cbe-master/realfast/anaconda/lib/python2.7/site-packages"],)
 ]
 
 setup(
