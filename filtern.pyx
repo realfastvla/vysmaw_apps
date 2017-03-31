@@ -17,7 +17,7 @@ cdef void filter_time(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_
 
     cdef np.float64_t *select = <np.float64_t *>user_data
     for i in range(num_infos):
-        pass_filter[i] = select[0] <= infos[i].timestamp and infos[i].timestamp < select[1]
+        pass_filter[i] = select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]
     return
 
 
@@ -31,13 +31,27 @@ cdef void filter_pol(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t
     return
 
 
-def run(*args, n_stop=10, filter='pol'):
-    """ Playing...
-    (assume one for now)
+cdef void filter_none(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+             uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+             void *user_data, bool *pass_filter) nogil:
+
+    for i in range(num_infos):
+        pass_filter[i] = True
+    return
+
+
+def run(*args, filter='', nr=1):
+    """ Read nr filtered messages and return values appropriate for given filter.
+    filters can be empty, 'pol', 'time'.
+    pol needs a integer pol value.
+    time needs two unix times in seconds.
+    empty needs no argument.
     """
 
     # define windows
-    print(args, type(args))
+#    print(args, type(args))
+    if not len(args): # catch if no args passed for filter=''
+        args = [0]
     cdef np.ndarray[np.float64_t, ndim=1, mode="c"] windows = np.array(args, dtype=np.float64)
     N = len(windows)
 
@@ -53,10 +67,17 @@ def run(*args, n_stop=10, filter='pol'):
     cdef vysmaw_spectrum_filter *f = \
         <vysmaw_spectrum_filter *>malloc(N * sizeof(vysmaw_spectrum_filter))
 
-    if filter == 'pol':
+    if not filter:
+        f[0] = filter_none
+    elif filter == 'pol':
         f[0] = filter_pol
     elif filter == 'time':
         f[0] = filter_time
+    else:
+        print('filter name not recognized')
+        free(f)
+        free(u)
+        return
 
     handle, consumers = config.start(1, f, u)
 
@@ -67,17 +88,27 @@ def run(*args, n_stop=10, filter='pol'):
     cdef vysmaw_message_queue queue0 = c0.queue()
     cdef vysmaw_message *msg = NULL
 
-    data = np.zeros(n_stop)
-    i = 0
+    if not filter:
+        nch = 512   # not actually channels, since reading buffer currently and not data
+        data = np.zeros(shape=(nr, nch))
+    else:
+        data = np.zeros(nr)
 
-    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (i < n_stop):
+    i = 0
+    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (i < nr):
         if msg is not NULL:
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
-#                print(str(py_msg))
-                data[i] = py_msg.info.polarization_product_id
-                py_msg.unref()
+
+                if not filter:
+                    data[i] = np.array(py_msg.buffer)
+                elif filter == 'pol':
+                    data[i] = py_msg.info.polarization_product_id
+                elif filter == 'time':
+                    data[i] = py_msg.info.timestamp/1e9
                 i = i + 1
+
+                py_msg.unref()
             else:
                 vysmaw_message_unref(msg)
 
