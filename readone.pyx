@@ -6,12 +6,12 @@ import cy_vysmaw
 import signal
 import numpy as np
 
-cdef void cb(const uint8_t *stns, uint8_t spw, uint8_t bb, uint8_t pol,
+cdef void cb(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+             uint8_t pol,
              const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
-    cdef unsigned long *ncb = <unsigned long *>user_data
-
+    cdef float *ncb = <float *>user_data
     for i in range(num_infos):
         pass_filter[i] = True
     ncb[0] += 1
@@ -54,9 +54,9 @@ def run(n_stop):
                 py_msg = Message.wrap(msg)
                 print(str(py_msg))
                 bls[num_spectra] = np.asarray(py_msg.info.stations.memview)
-                times[num_spectra] = py_msg.info.timestamp/1e9
+                times[num_spectra] = py_msg.info.timestamp/1e6
                 specs[num_spectra] = py_msg.info.spectral_window_index
-                stokes[num_spectra] = py_msg.info.stokes_index
+                stokes[num_spectra] = py_msg.info.polarization_product_id
                 print('unreffing py_msg')
                 py_msg.unref()
                 num_spectra += 1
@@ -65,11 +65,8 @@ def run(n_stop):
                 vysmaw_message_unref(msg)
 
         print('before msg pop')
-        msg = vysmaw_message_queue_timeout_pop(queue, 500000)
-        print('msg type: {0}'.format(msg[0].typ))
-        print('got msg')
-        py_msg = Message.wrap(msg)
-        print(str(py_msg))
+        msg = vysmaw_message_queue_timeout_pop(queue, 2000000)
+        print('got msg type: {0}'.format(msg[0].typ))
 
     if handle is not None:
         handle.shutdown()
