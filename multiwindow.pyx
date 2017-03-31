@@ -6,17 +6,14 @@ import cy_vysmaw
 import signal
 import numpy as np
 
-def filter_timewindow(start, end):
-#    cdef void cb(const uint8_t *stns, uint8_t spw, uint8_t sto, const vys_spectrum_info *infos, uint8_t num_infos, void *user_data, bool *pass_filter) nogil:
-    def cb(stns, spw, sto, infos, num_infos, user_data, pass_filter):
-        for i in range(pass_filter.shape[0]):
-            pass_filter[i] = start <= infos[i].timestamp and infos[i].timestamp < end
-        return
-    return cb
 
-cdef void cb(const uint8_t *stns, uint8_t spw, uint8_t sto, const vys_spectrum_info *infos, uint8_t num_infos, void *user_data, bool *pass_filter) nogil:
+cdef void cb(const uint8_t *stns, uint8_t spw, uint8_t bb, uint8_t pol,
+             const vys_spectrum_info *infos, uint8_t num_infos,
+             void *user_data, bool *pass_filter) nogil:
+
+    cdef float *limits = <float *>user_data
     for i in range(pass_filter.shape[0]):
-        pass_filter[i] = 0 <= infos[i].timestamp and infos[i].timestamp < 1
+        pass_filter[i] = limits[0] <= infos[i].timestamp and infos[i].timestamp < limits[1]
     return
 
 
@@ -26,12 +23,16 @@ def run(start, end, rate=1):
 
     cdef vysmaw_spectrum_filter *f = \
         <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
-#    cb = filter_timewindow(start, end)
-    f[0] = cb
 
-    handle, consumers = config.start(1, f, NULL)
+    N = 1  # number of consumers
+    cdef void **u = <void **>malloc(N * sizeof(void *))
+
+    f[0] = cb
+    u[0] = np.array([start, stop])
+    handle, consumers = config.start(1, f, u)
 
     free(f)
+    free(u)
 
     cdef Consumer c0 = consumers[0]
     cdef vysmaw_message_queue queue = c0.queue()

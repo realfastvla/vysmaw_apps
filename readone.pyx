@@ -6,7 +6,7 @@ import cy_vysmaw
 import signal
 import numpy as np
 
-cdef void cb(const uint8_t *stns, uint8_t spw, uint8_t sto, 
+cdef void cb(const uint8_t *stns, uint8_t spw, uint8_t bb, uint8_t pol,
              const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
