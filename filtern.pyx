@@ -7,7 +7,8 @@ import signal
 import numpy as np
 cimport numpy as np
 import cython
-
+from cpython cimport PyErr_CheckSignals
+import os.path
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -40,12 +41,14 @@ cdef void filter_none(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_
     return
 
 
-def run(*args, filter='', nr=1):
+def run(*args, filter='', nr=1, nch=64, cfile=None):
     """ Read nr filtered messages and return values appropriate for given filter.
     filters can be empty, 'pol', 'time'.
     pol needs a integer pol value.
     time needs two unix times in seconds.
     empty needs no argument.
+    nch in number of channels.
+    cfile is the vys/vysmaw configuration file
     """
 
     # define windows
@@ -57,7 +60,11 @@ def run(*args, filter='', nr=1):
 
     # configure
     cdef Configuration config
-    config = cy_vysmaw.Configuration()
+    if cfile:
+        assert os.path.exists(cfile), 'Configuration file {0} not found.'.format(cfile)
+        config = cy_vysmaw.Configuration(cfile)
+    else:
+        config = cy_vysmaw.Configuration()
 
     # set windows
     cdef void **u = <void **>malloc(N * sizeof(void *))
@@ -88,31 +95,22 @@ def run(*args, filter='', nr=1):
     cdef vysmaw_message_queue queue0 = c0.queue()
     cdef vysmaw_message *msg = NULL
 
-    if not filter:
-        nch = 512   # not actually channels, since reading buffer currently and not data
-        data = np.zeros(shape=(nr, nch))
-    else:
-        data = np.zeros(nr)
+    data = np.zeros(shape=(nr, nch), dtype='complex128')
 
-    i = 0
+    cdef long i = 0
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (i < nr):
         if msg is not NULL:
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
-
-                if not filter:
-                    data[i] = np.array(py_msg.buffer)
-                elif filter == 'pol':
-                    data[i] = py_msg.info.polarization_product_id
-                elif filter == 'time':
-                    data[i] = py_msg.info.timestamp/1e9
+                data[i].real = np.array(py_msg.buffer)[::2]
+                data[i].imag = np.array(py_msg.buffer)[1::2]
                 i = i + 1
-
                 py_msg.unref()
             else:
                 vysmaw_message_unref(msg)
 
         msg = vysmaw_message_queue_timeout_pop(queue0, 500000)
+        PyErr_CheckSignals()
 
     if handle is not None:
         handle.shutdown()
