@@ -12,7 +12,7 @@ import os.path
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void filter_time(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
@@ -22,7 +22,7 @@ cdef void filter_time(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_
     return
 
 
-cdef void filter_pol(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+cdef void filter_pol(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
@@ -32,7 +32,7 @@ cdef void filter_pol(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t
     return
 
 
-cdef void filter_none(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 

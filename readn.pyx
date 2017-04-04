@@ -6,7 +6,7 @@ import cy_vysmaw
 import signal
 import numpy as np
 
-cdef void cb(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+cdef void cb(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol,
              const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
@@ -61,11 +61,11 @@ def run(n_stop):
                 py_msg.unref()
                 num_spectra += 1
             else:
-                print('not valid')
+                print('NULL')
                 vysmaw_message_unref(msg)
 
         print('before msg pop')
-        msg = vysmaw_message_queue_timeout_pop(queue, 2000000)
+        msg = vysmaw_message_queue_timeout_pop(queue, 1000000)
         print('got msg type: {0}'.format(msg[0].typ))
 
     if handle is not None:

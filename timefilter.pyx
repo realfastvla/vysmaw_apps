@@ -12,7 +12,7 @@ import cy_vysmaw
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void filter_time(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
@@ -57,6 +57,15 @@ def run(t0, t1, a=3, w=1, c=64, k=1, i=1000000, timeout=30, cfile=None):
     cdef vysmaw_spectrum_filter *f = \
         <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
 
+    message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
+        VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
+        VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
+        VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_END],
+	["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
+        "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
+        "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
+        "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_END"]))
+
     f[0] = filter_time
     handle, consumers = config.start(1, f, u)
     free(f)
@@ -66,36 +75,47 @@ def run(t0, t1, a=3, w=1, c=64, k=1, i=1000000, timeout=30, cfile=None):
     cdef vysmaw_message_queue queue0 = c0.queue()
     cdef vysmaw_message *msg = NULL
 
-    ni = (t1-t0)/int(i/1e6)  # t1, t0 in seconds, i in microsec
-    nbl = a*(a-1)/2
+    cdef int ni = int((t1-t0)/(i/1e6))  # t1, t0 in seconds, i in microsec
+    cdef int nbl = a*(a-1)/2
+    cdef int nch = w*c
+    cdef int ntot = ni*nbl*w*k
+    cdef long time0 = int(time.time())
+    cdef long time1 = time0
     blarr = np.array([(ind0, ind1) for ind1 in range(a) for ind0 in range(0,ind1)])
-    nch = w*c
-    ntot = ni*nbl*w*k
     data = np.zeros(shape=(ni, nbl, nch, k), dtype='complex128')
-    time0 = int(time.time())
 
     cdef long spec = 0
-    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < ntot) and (int(time.time()) - time0 < timeout):
+    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < ntot) and (time1 - time0 < timeout):
         if msg is not NULL:
+            if msg[0].typ in message_types:
+                message = message_types[msg[0].typ]
+            else:
+                message = msg[0].typ
+            print(str('{0} spec. msg: {1}'.format(spec, message)))
+
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
 
-                iind = 0
-#                print(np.array(py_msg.info.stations))
-                bind = np.where(blarr == np.array(py_msg.info.stations))
+                iind = 0  # need to set
+                stations = np.array(py_msg.info.stations)
+                bind = np.where([np.all(bl == stations) for bl in blarr])[0][0]
                 ch0 = c*py_msg.info.spectral_window_index # or baseband_index? or baseband_id?
                 pind = py_msg.info.polarization_product_id
-#                print(bind, ch0, pind)
+
+                print(py_msg.info.timestamp/1e9, bind, ch0, pind)
                 data[iind, bind, ch0:ch0+c, pind].real = np.array(py_msg.buffer)[::2]
                 data[iind, bind, ch0:ch0+c, pind].imag = np.array(py_msg.buffer)[1::2]
+
                 spec = spec + 1
                 py_msg.unref()
             else:
-#                print(str('msg: {0}'.format(msg[0].typ)))
                 vysmaw_message_unref(msg)
+
         else:
             print('msg: NULL')
+
         msg = vysmaw_message_queue_timeout_pop(queue0, 1000000)
+        time1 = int(time.time())
         PyErr_CheckSignals()
 
     if handle is not None:
