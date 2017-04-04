@@ -17,6 +17,8 @@ cdef void filter_time(const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_
              void *user_data, bool *pass_filter) nogil:
 
     cdef np.float64_t *select = <np.float64_t *>user_data
+    cdef unsigned int i
+
     for i in range(num_infos):
         pass_filter[i] = select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]
     return
@@ -79,19 +81,20 @@ def run(t0, t1, a=3, w=1, c=64, k=1, i=1000000, timeout=30, cfile=None):
                 py_msg = Message.wrap(msg)
 
                 iind = 0
-                print(np.array(py_msg.info.stations)
+#                print(np.array(py_msg.info.stations))
                 bind = np.where(blarr == np.array(py_msg.info.stations))
                 ch0 = c*py_msg.info.spectral_window_index # or baseband_index? or baseband_id?
                 pind = py_msg.info.polarization_product_id
-                print(bind, ch0, pind)
+#                print(bind, ch0, pind)
                 data[iind, bind, ch0:ch0+c, pind].real = np.array(py_msg.buffer)[::2]
                 data[iind, bind, ch0:ch0+c, pind].imag = np.array(py_msg.buffer)[1::2]
                 spec = spec + 1
                 py_msg.unref()
             else:
+#                print(str('msg: {0}'.format(msg[0].typ)))
                 vysmaw_message_unref(msg)
         else:
-            print('NULL')
+            print('msg: NULL')
         msg = vysmaw_message_queue_timeout_pop(queue0, 1000000)
         PyErr_CheckSignals()
 
