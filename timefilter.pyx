@@ -57,15 +57,6 @@ def run(t0, t1, a=3, w=1, c=64, k=1, i=1000000, timeout=30, cfile=None):
     cdef vysmaw_spectrum_filter *f = \
         <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
 
-    message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
-        VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
-        VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
-        VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_END],
-	["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
-        "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
-        "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
-        "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_END"]))
-
     f[0] = filter_time
     handle, consumers = config.start(1, f, u)
     free(f)
@@ -83,26 +74,25 @@ def run(t0, t1, a=3, w=1, c=64, k=1, i=1000000, timeout=30, cfile=None):
     cdef long time1 = time0
     blarr = np.array([(ind0, ind1) for ind1 in range(a) for ind0 in range(0,ind1)])
     data = np.zeros(shape=(ni, nbl, nch, k), dtype='complex128')
+    timearr = np.linspace(t0, t1, ni)
 
     cdef long spec = 0
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < ntot) and (time1 - time0 < timeout):
         if msg is not NULL:
-            if msg[0].typ in message_types:
-                message = message_types[msg[0].typ]
-            else:
-                message = msg[0].typ
-            print(str('{0} spec. msg: {1}'.format(spec, message)))
+            print(str('msg: type {0}'.format(msg[0].typ)))
 
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
+                msg_time = py_msg.info.timestamp/1e9
+                iind = np.argmin(np.abs(timearr-msg_time))
 
-                iind = 0  # need to set
                 stations = np.array(py_msg.info.stations)
                 bind = np.where([np.all(bl == stations) for bl in blarr])[0][0]
+
                 ch0 = c*py_msg.info.spectral_window_index # or baseband_index? or baseband_id?
                 pind = py_msg.info.polarization_product_id
 
-                print(py_msg.info.timestamp/1e9, bind, ch0, pind)
+                print(iind, bind, ch0, pind)
                 data[iind, bind, ch0:ch0+c, pind].real = np.array(py_msg.buffer)[::2]
                 data[iind, bind, ch0:ch0+c, pind].imag = np.array(py_msg.buffer)[1::2]
 

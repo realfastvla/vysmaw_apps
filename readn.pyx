@@ -18,6 +18,16 @@ cdef void cb(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t
     return
 
 
+message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
+    VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
+    VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
+    VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_END],
+    ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
+    "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
+    "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
+    "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_END"]))
+
+
 def run(n_stop):
     cdef Configuration config
     config = cy_vysmaw.Configuration()
@@ -48,7 +58,12 @@ def run(n_stop):
     print('before while')
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (num_spectra < n_stop):
         if msg is not NULL:
-            print('not NULL')
+            if msg[0].typ in message_types:
+                message = message_types[msg[0].typ]
+            else:
+                message = msg[0].typ
+            print(str(' msg type: {0}'.format(message)))
+
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 print('valid. num_spectra={0}'.format(num_spectra))
                 py_msg = Message.wrap(msg)
