@@ -1,9 +1,10 @@
 import os.path
 import time
+import cython
+from threading import Thread
 from cpython cimport PyErr_CheckSignals
 import numpy as np
 cimport numpy as np
-import cython
 from vysmaw cimport *
 from libc.stdint cimport *
 from libc.stdlib cimport *
@@ -123,7 +124,7 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
     return data
 
 
-def filter2(t0, t1, t2, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=30, cfile=None):
+def filter2(t0, t1, t2, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=10, cfile=None):
     """ Read data between two time windows (unix times) t0-t1 and t1-t2.
     Data structure is assumed to be defined by parameters:
     - nant is number of antennas,
@@ -169,61 +170,18 @@ def filter2(t0, t1, t2, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000
     cdef Consumer c1 = consumers[1]
     cdef vysmaw_message_queue queue0 = c0.queue()
     cdef vysmaw_message_queue queue1 = c1.queue()
-    cdef vysmaw_message *msg0 = NULL
-    cdef vysmaw_message *msg1 = NULL
 
-    cdef int ni = int((t1-t0)/(inttime_micros/1e6))  # t1, t0 in seconds, i in microsec
-    cdef int nbl = nant*(nant-1)/2
-    cdef int nchantot = nspw*nchan
-    cdef int nspec = ni*nbl*nspw*npol
-    cdef long time0 = int(time.time())
-    cdef long time1 = time0
-
-    cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(nant) for ind0 in range(0,ind1)])
-    cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
-    timearr = t0+(inttime_micros/1e6)*np.arange(ni)  # using cdef changes result of comparison with msg_time. why?
-
-    print('Expecting {0} integrations and {1} spectra between times {2} and {3} (timeout {4} s)'.format(ni, nspec, t0, t1, timeout))
-
-    # count until total number of spec is received or timeout elapses
-    cdef long spec = 0
-    while ((msg0 is NULL) or (msg0[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (time1 - time0 < timeout):
-        msg0 = vysmaw_message_queue_timeout_pop(queue0, 10*inttime_micros)
-
-        if msg0 is not NULL:
-#            print(str('msg: type {0}'.format(msg0[0].typ)))
-            if msg0[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-                py_msg = Message.wrap(msg0)
-                msg_time = py_msg.info.timestamp/1e9
-#                print(msg_time)
-
-                iind = np.argmin(np.abs(timearr-msg_time))
-
-                stations = np.array(py_msg.info.stations)
-                bind = np.where([np.all(bl == stations) for bl in blarr])[0][0]
-
-                ch0 = nchan*py_msg.info.spectral_window_index # or baseband_index? or baseband_id?
-                pind = py_msg.info.polarization_product_id
-
-#                print(iind, bind, ch0, pind)
-
-                data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
-                data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
-
-                spec = spec + 1
-                py_msg.unref()
-#                print('{0}/{1} spectra received'.format(spec, nspec))
-            else:
-                vysmaw_message_unref(msg0)
-
-        else:
-#            print('msg: NULL')
-             pass
-
-        time1 = int(time.time())
-        PyErr_CheckSignals()
+    threads = []
+    t0 = Thread(target=run, args=(queue0, t0, t1, inttime_micros, nant, nspw, nchan, npol, timeout))
+    t1 = Thread(target=run, args=(queue1, t1, t2, inttime_micros, nant, nspw, nchan, npol, timeout))
+    threads.append(t0)
+    threads.append(t1)
+    t0.start()
+    t1.start()
 
     if handle is not None:
         handle.shutdown()
 
-    return data
+
+cdef void run(vysmaw_message_queue queue, float t0, float t1, long inttime_micros, long nant, long nspw, long nchan, long npol, long timeout):
+    return
