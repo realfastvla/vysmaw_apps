@@ -83,7 +83,7 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
     # count until total number of spec is received or timeout elapses
     cdef long spec = 0
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (time1 - time0 < timeout):
-        msg = vysmaw_message_queue_timeout_pop(queue0, 2*inttime_micros)
+        msg = vysmaw_message_queue_timeout_pop(queue0, 10*inttime_micros)
 
         if msg is not NULL:
 #            print(str('msg: type {0}'.format(msg[0].typ)))
@@ -113,7 +113,7 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
 
         else:
 #            print('msg: NULL')
-             pass
+            pass
 
         time1 = int(time.time())
         PyErr_CheckSignals()
@@ -122,66 +122,3 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
         handle.shutdown()
 
     return data
-
-
-def filter2(t0, t1, t2, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=10, cfile=None):
-    """ Read data between two time windows (unix times) t0-t1 and t1-t2.
-    Data structure is assumed to be defined by parameters:
-    - nant is number of antennas,
-    - nspe is number of spectral windows,
-    - nchan is number of channels per window,
-    - npol is number of stokes parameters, and
-    - inttime_micros is integration time in microseconds.
-    Will return numpy array when all data collected or as much as is ready when timeout elapses.
-    cfile is the vys/vysmaw configuration file.
-    """
-
-    # define time window
-    cdef np.ndarray[np.float64_t, ndim=1, mode="c"] window0 = np.array([t0, t1], dtype=np.float64)
-    cdef np.ndarray[np.float64_t, ndim=1, mode="c"] window1 = np.array([t1, t2], dtype=np.float64)
-    cdef int nwindow = 2
-
-    # configure
-    cdef Configuration config
-    if cfile:
-        assert os.path.exists(cfile), 'Configuration file {0} not found.'.format(cfile)
-        print('Reading {0}'.format(cfile))
-        config = cy_vysmaw.Configuration(cfile)
-    else:
-        print('Not using a vys configuration file')
-        config = cy_vysmaw.Configuration()
-
-    # set windows
-    cdef void **u = <void **>malloc(nwindow*sizeof(void *))
-    u[0] = &window0[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
-    u[1] = &window1[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
-
-    # set filters
-    cdef vysmaw_spectrum_filter *f = \
-        <vysmaw_spectrum_filter *>malloc(nwindow*sizeof(vysmaw_spectrum_filter))
-
-    f[0] = filter_time
-    f[1] = filter_time
-    handle, consumers = config.start(nwindow, f, u)
-    free(f)
-    free(u)
-
-    cdef Consumer c0 = consumers[0]
-    cdef Consumer c1 = consumers[1]
-    cdef vysmaw_message_queue queue0 = c0.queue()
-    cdef vysmaw_message_queue queue1 = c1.queue()
-
-    threads = []
-    t0 = Thread(target=run, args=(queue0, t0, t1, inttime_micros, nant, nspw, nchan, npol, timeout))
-    t1 = Thread(target=run, args=(queue1, t1, t2, inttime_micros, nant, nspw, nchan, npol, timeout))
-    threads.append(t0)
-    threads.append(t1)
-    t0.start()
-    t1.start()
-
-    if handle is not None:
-        handle.shutdown()
-
-
-cdef void run(vysmaw_message_queue queue, float t0, float t1, long inttime_micros, long nant, long nspw, long nchan, long npol, long timeout):
-    return
