@@ -11,6 +11,15 @@ from libc.stdlib cimport *
 from cy_vysmaw cimport *
 import cy_vysmaw
 
+message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
+	      VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
+	      VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
+	      VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_END],
+	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
+	      "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
+	      "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
+	      "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_END"]))
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
@@ -25,7 +34,7 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     return
 
 
-def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=30, cfile=None):
+cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=30, cfile=None):
     """ Read data between unix times t0 and t1.
     Data structure is assumed to be defined by parameters:
     - nant is number of antennas,
@@ -44,10 +53,10 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
     cdef Configuration config
     if cfile:
         assert os.path.exists(cfile), 'Configuration file {0} not found.'.format(cfile)
-        print('Reading {0}'.format(cfile))
+#        print('Reading {0}'.format(cfile))
         config = cy_vysmaw.Configuration(cfile)
     else:
-        print('Not using a vys configuration file')
+#        print('Not using a vys configuration file')
         config = cy_vysmaw.Configuration()
 
     # set windows
@@ -67,26 +76,27 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
     cdef vysmaw_message_queue queue0 = c0.queue()
     cdef vysmaw_message *msg = NULL
 
-    cdef int ni = int((t1-t0)/(inttime_micros/1e6))  # t1, t0 in seconds, i in microsec
-    cdef int nbl = nant*(nant-1)/2
-    cdef int nchantot = nspw*nchan
-    cdef int nspec = ni*nbl*nspw*npol
+    cdef unsigned int ni = int((t1-t0)/(inttime_micros/1e6))  # t1, t0 in seconds, i in microsec
+    cdef unsigned int nbl = nant*(nant-1)/2
+    cdef unsigned int nchantot = nspw*nchan
+    cdef unsigned int nspec = ni*nbl*nspw*npol
     cdef long time0 = int(time.time())
     cdef long time1 = time0
 
     cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(nant) for ind0 in range(0,ind1)])
     cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
+#    cdef np.ndarray[np.float_64, ndim=1, mode="c"] timearr = t0+(inttime_micros/1e6)*np.arange(ni)  # using cdef changes result of comparison with msg_time. why?
     timearr = t0+(inttime_micros/1e6)*np.arange(ni)  # using cdef changes result of comparison with msg_time. why?
 
-    print('Expecting {0} integrations and {1} spectra between times {2} and {3} (timeout {4} s)'.format(ni, nspec, t0, t1, timeout))
+#    print('Expecting {0} integrations and {1} spectra between times {2} and {3} (timeout {4} s)'.format(ni, nspec, t0, t1, timeout))
 
     # count until total number of spec is received or timeout elapses
     cdef long spec = 0
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (time1 - time0 < timeout):
-        msg = vysmaw_message_queue_timeout_pop(queue0, 10*inttime_micros)
+        msg = vysmaw_message_queue_timeout_pop(queue0, 3*inttime_micros)
 
         if msg is not NULL:
-#            print(str('msg: type {0}'.format(msg[0].typ)))
+            print(str('msg: {0}'.format(message_types[msg[0].typ])))
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
                 msg_time = py_msg.info.timestamp/1e9
@@ -107,12 +117,12 @@ def filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, ti
 
                 spec = spec + 1
                 py_msg.unref()
-#                print('{0}/{1} spectra received'.format(spec, nspec))
+                print('{0}/{1} spectra received'.format(spec, nspec))
             else:
                 vysmaw_message_unref(msg)
 
         else:
-#            print('msg: NULL')
+            print('msg: NULL')
             pass
 
         time1 = int(time.time())
