@@ -53,10 +53,10 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef Configuration config
     if cfile:
         assert os.path.exists(cfile), 'Configuration file {0} not found.'.format(cfile)
-#        print('Reading {0}'.format(cfile))
+        print('Reading {0}'.format(cfile))
         config = cy_vysmaw.Configuration(cfile)
     else:
-#        print('Not using a vys configuration file')
+        print('Using default vys configuration file')
         config = cy_vysmaw.Configuration()
 
     # set windows
@@ -76,7 +76,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef vysmaw_message_queue queue0 = c0.queue()
     cdef vysmaw_message *msg = NULL
 
-    cdef unsigned int ni = int((t1-t0)/(inttime_micros/1e6))  # t1, t0 in seconds, i in microsec
+    cdef unsigned int ni = int(round((t1-t0)/(inttime_micros/1e6)))  # t1, t0 in seconds, i in microsec
     cdef unsigned int nbl = nant*(nant-1)/2
     cdef unsigned int nchantot = nspw*nchan
     cdef unsigned int nspec = ni*nbl*nspw*npol
@@ -86,9 +86,9 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(nant) for ind0 in range(0,ind1)])
     cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
 #    cdef np.ndarray[np.float_64, ndim=1, mode="c"] timearr = t0+(inttime_micros/1e6)*np.arange(ni)  # using cdef changes result of comparison with msg_time. why?
-    timearr = t0+(inttime_micros/1e6)*np.arange(ni)  # using cdef changes result of comparison with msg_time. why?
+    timearr = t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
 
-#    print('Expecting {0} integrations and {1} spectra between times {2} and {3} (timeout {4} s)'.format(ni, nspec, t0, t1, timeout))
+    print('Expecting {0} integrations and {1} spectra between times {2} and {3} (timeout {4} s)'.format(ni, nspec, t0, t1, timeout))
 
     # count until total number of spec is received or timeout elapses
     cdef long spec = 0
