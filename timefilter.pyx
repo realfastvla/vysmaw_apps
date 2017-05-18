@@ -34,7 +34,7 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     return
 
 
-cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=30, cfile=None):
+cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=10, cfile=None, excludeants=[]):
     """ Read data between unix times t0 and t1.
     Data structure is assumed to be defined by parameters:
     - nant is number of antennas,
@@ -83,7 +83,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef long time0 = int(time.time())
     cdef long time1 = time0
 
-    cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(nant) for ind0 in range(0,ind1)])
+    cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(1, nant+1+len(excludeants)) for ind0 in range(1,ind1) if ind0 not in excludeants and ind1 not in excludeants])
     cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
 #    cdef np.ndarray[np.float_64, ndim=1, mode="c"] timearr = t0+(inttime_micros/1e6)*np.arange(ni)  # using cdef changes result of comparison with msg_time. why?
     timearr = t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
@@ -93,41 +93,48 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     # count until total number of spec is received or timeout elapses
     cdef long spec = 0
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (time1 - time0 < timeout):
-        msg = vysmaw_message_queue_timeout_pop(queue0, 3*inttime_micros)
+        msg = vysmaw_message_queue_timeout_pop(queue0, inttime_micros)
 
         if msg is not NULL:
-            print(str('msg: {0}'.format(message_types[msg[0].typ])))
+            print(str('msg {0}'.format(message_types[msg[0].typ])))
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
+
+                # get the goodies asap
                 msg_time = py_msg.info.timestamp/1e9
-#                print(msg_time)
-
-                iind = np.argmin(np.abs(timearr-msg_time))
-
-                stations = np.array(py_msg.info.stations)
-                bind = np.where([np.all(bl == stations) for bl in blarr])[0][0]
-
+                buffer = py_msg.buffer
                 ch0 = nchan*py_msg.info.spectral_window_index # or baseband_index? or baseband_id?
                 pind = py_msg.info.polarization_product_id
-
-#                print(iind, bind, ch0, pind)
-
-                data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
-                data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
-
-                spec = spec + 1
+                stations = np.array(py_msg.info.stations)
                 py_msg.unref()
-                print('{0}/{1} spectra received'.format(spec, nspec))
+
+                hasstations = [np.all(bl == stations) for bl in blarr]
+                if np.any(hasstations):
+#                    print('has baseline {0}'.format(stations))
+
+                    bind = np.where(hasstations)[0][0]
+                    iind = np.argmin(np.abs(timearr-msg_time))
+
+#                    print(iind, bind, ch0, pind)
+
+                    data[iind, bind, ch0:ch0+nchan, pind].real = np.array(buffer)[::2]
+                    data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(buffer)[1::2]
+
+                    spec = spec + 1
+                else:
+#                    print('no such baseline expected {0}'.format(stations))
+                    pass
             else:
                 vysmaw_message_unref(msg)
 
         else:
             print('msg: NULL')
-            pass
+#            pass
 
         time1 = int(time.time())
         PyErr_CheckSignals()
 
+    print('{0}/{1} spectra received'.format(spec, nspec))
     if handle is not None:
         handle.shutdown()
 
