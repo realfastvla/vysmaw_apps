@@ -17,6 +17,7 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
              void *user_data, bool *pass_filter) nogil:
 
     cdef np.float64_t *select = <np.float64_t *>user_data
+
     for i in range(num_infos):
         pass_filter[i] = select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]
     return
