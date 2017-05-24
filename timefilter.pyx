@@ -91,7 +91,8 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef long starttime = time.time()
     cdef long currenttime = starttime
 
-    cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants])
+    cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(nant+len(excludeants)) if ant not in excludeants]) # 0 based
+#    cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants]) # 1 based
     cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(0, ind1)])
 #    cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(1, nant+1+len(excludeants)) for ind0 in range(1,ind1) if ind0 not in excludeants and ind1 not in excludeants]) # old way
     cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
@@ -102,7 +103,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
 
     # count until total number of spec is received or timeout elapses
     cdef long spec = 0
-    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec): # and (currenttime - starttime < timeout):
+    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (currenttime - starttime < timeout):
         msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
         if msg is not NULL:
@@ -112,34 +113,28 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
 
                 # get the goodies asap
                 msg_time = py_msg.info.timestamp/1e9
-                buffer = py_msg.buffer
                 ch0 = nchan*py_msg.info.baseband_index  # TODO: need to be smarter here
                 pind = py_msg.info.polarization_product_id
                 stations = np.array(py_msg.info.stations)
-                py_msg.unref()
+                print(msg_time, ch0, pind, stations)
 
                 # TODO: may be smarter to define acceptable data from input parameters here. drop those that don't fit?
                 hasstations = [np.all(bl == stations) for bl in blarr]
                 if np.any(hasstations):
-#                    print('has baseline {0}'.format(stations))
+                    print('has baseline {0}'.format(stations))
 
                     bind = np.where(hasstations)[0][0]
                     iind = np.argmin(np.abs(timearr-msg_time))
 
-#                    inds = (iind, bind, ch0, pind)
-#                    if inds in received:
-#                        print('already got this one: {0}'.format(inds))
-#                    else:
-#                        print('adding inds {0}'.format(inds))
-#                        received.append(inds)
-
-                    data[iind, bind, ch0:ch0+nchan, pind].real = np.array(buffer)[::2]
-                    data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(buffer)[1::2]
+                    data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
+                    data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
 
                     spec = spec + 1
                 else:
-#                    print('no such baseline expected {0}'.format(stations))
-                    pass
+                    print('no such baseline expected {0}'.format(stations))
+#                    pass
+
+                py_msg.unref()
 
             else:
                 print('Got an invalid buffer of type {0}'.format(msg[0].typ))
@@ -160,5 +155,17 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
 
     if handle is not None:
         handle.shutdown()
+
+    if spec < nspec:
+        msg = NULL
+        while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
+            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+
+            if msg is not NULL:
+                print(str('msg {0}'.format(message_types[msg[0].typ])))
+                spec = spec + 1
+
+    print('{0}/{1} spectra received'.format(spec, nspec))
+    print('{0} spectra in callback'.format(windows[2]))
 
     return data
