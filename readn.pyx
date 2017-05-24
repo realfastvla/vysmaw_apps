@@ -18,16 +18,6 @@ cdef void cb(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t
     return
 
 
-message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
-    VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
-    VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
-    VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_END],
-    ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
-    "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
-    "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
-    "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_END"]))
-
-
 def run(n_stop):
     cdef Configuration config
     config = cy_vysmaw.Configuration()
@@ -57,12 +47,11 @@ def run(n_stop):
 
     print('before while')
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (num_spectra < n_stop):
+        print('before msg pop')
+        msg = vysmaw_message_queue_timeout_pop(queue, 1000000)
+
         if msg is not NULL:
-            if msg[0].typ in message_types:
-                message = message_types[msg[0].typ]
-            else:
-                message = msg[0].typ
-            print(str(' msg type: {0}'.format(message)))
+            print(str(' msg type: {0}'.format(msg[0].typ)))
 
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 print('valid. num_spectra={0}'.format(num_spectra))
@@ -76,14 +65,16 @@ def run(n_stop):
                 py_msg.unref()
                 num_spectra += 1
             else:
-                print('NULL')
+                print('msg not valid buffer type')
                 vysmaw_message_unref(msg)
+        else:
+            print('NULL')
 
-        print('before msg pop')
-        msg = vysmaw_message_queue_timeout_pop(queue, 1000000)
-        print('got msg type: {0}'.format(msg[0].typ))
+    print('before shutdown')
 
     if handle is not None:
         handle.shutdown()
 
-    return (bls, times, specs, stokes)
+    print('after shutdown')
+    return 'ok!'
+#    return (bls, times, specs, stokes)  # seg fault!
