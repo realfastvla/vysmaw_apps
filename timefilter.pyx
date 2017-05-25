@@ -118,12 +118,12 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
                 ch0 = nchan*py_msg.info.baseband_index  # TODO: need to be smarter here
                 pind = py_msg.info.polarization_product_id
                 stations = np.array(py_msg.info.stations)
-                print(msg_time, ch0, pind, stations)
+#                print(msg_time, ch0, pind, stations)
 
                 # TODO: may be smarter to define acceptable data from input parameters here. drop those that don't fit?
                 hasstations = [np.all(bl == stations) for bl in blarr]
                 if np.any(hasstations):
-                    print('has baseline {0}'.format(stations))
+#                    print('has baseline {0}'.format(stations))
 
                     bind = np.where(hasstations)[0][0]
                     iind = np.argmin(np.abs(timearr-msg_time))
@@ -132,18 +132,18 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
                     data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
 
                     spec = spec + 1
-                else:
-                    print('no such baseline expected {0}'.format(stations))
-#                    pass
+#                else:
+#                    print('no such baseline expected {0}'.format(stations))
+                    pass
 
                 py_msg.unref()
 
             else:
-                print('Got an invalid buffer of type {0}'.format(msg[0].typ))
+#                print('Got an invalid buffer of type {0}'.format(msg[0].typ))
                 vysmaw_message_unref(msg)
 
         else:
-            print('msg: NULL')
+#            print('msg: NULL')
             pass
 
         currenttime = time.time()
