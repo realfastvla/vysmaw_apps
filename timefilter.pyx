@@ -1,7 +1,5 @@
-import os.path
 import time
 import cython
-from threading import Thread
 from cpython cimport PyErr_CheckSignals
 import numpy as np
 cimport numpy as np
@@ -42,6 +40,8 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     return
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=10, cfile=None, excludeants=[]):
     """ Read data between unix times t0 and t1.
     Data structure is assumed to be defined by parameters:
@@ -62,7 +62,6 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     # configure
     cdef Configuration config
     if cfile:
-        assert os.path.exists(cfile), 'Configuration file {0} not found.'.format(cfile)
         print('Reading {0}'.format(cfile))
         config = cy_vysmaw.Configuration(cfile)
     else:
@@ -93,13 +92,12 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef long starttime = time.time()
     cdef long currenttime = starttime
 
-    cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(nant+len(excludeants)) if ant not in excludeants]) # 0 based
-#    cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants]) # 1 based
+    cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants]) # 1 based
     cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(0, ind1)])
-#    cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(ind0, ind1) for ind1 in range(1, nant+1+len(excludeants)) for ind0 in range(1,ind1) if ind0 not in excludeants and ind1 not in excludeants]) # old way
-    cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
-
     cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
+#    cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
+
+    cdef np.ndarray[np.complex128_t, ndim=2, mode="c"] data = np.zeros(shape=(nspec, nchan), dtype='complex128')
 
     print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5} s)'.format(ni, nbl, nspec, t0, t1, timeout))
 
@@ -109,7 +107,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
         msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
         if msg is not NULL:
-            print(str('msg {0}'.format(message_types[msg[0].typ])))
+#            print(str('msg {0}'.format(message_types[msg[0].typ])))
             if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                 py_msg = Message.wrap(msg)
 
@@ -121,21 +119,18 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
 #                print(msg_time, ch0, pind, stations)
 
                 # TODO: may be smarter to define acceptable data from input parameters here. drop those that don't fit?
-                hasstations = [np.all(bl == stations) for bl in blarr]
-                if np.any(hasstations):
-#                    print('has baseline {0}'.format(stations))
+#                hasstations = [np.all(bl == stations) for bl in blarr]  # way too slow
+#                print('has baseline {0}'.format(stations))
 
-                    bind = np.where(hasstations)[0][0]
-                    iind = np.argmin(np.abs(timearr-msg_time))
+#                bind = np.where(hasstations)[0][0]
+                iind = np.argmin(np.abs(timearr-msg_time))
 
-                    data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
-                    data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
+#                data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
+#                data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
+                data[spec, :].real = np.array(py_msg.buffer)[1::2]
+                data[spec, :].imag = np.array(py_msg.buffer)[1::2]
 
-                    spec = spec + 1
-#                else:
-#                    print('no such baseline expected {0}'.format(stations))
-                    pass
-
+                spec = spec + 1
                 py_msg.unref()
 
             else:
@@ -147,7 +142,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
             pass
 
         currenttime = time.time()
-        if currenttime > starttime and spec % 10:
+        if currenttime > starttime and not spec % 100:
             print('At spec {0}: {1} % of data in {2} % of time'.format(spec, 100*float(spec)/float(nspec), 100*(currenttime-starttime)/(t1-t0)))
 
         PyErr_CheckSignals()

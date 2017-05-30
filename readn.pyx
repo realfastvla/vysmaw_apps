@@ -2,79 +2,56 @@ from vysmaw cimport *
 from libc.stdint cimport *
 from libc.stdlib cimport *
 from cy_vysmaw cimport *
+from cpython cimport PyErr_CheckSignals
 import cy_vysmaw
 import signal
 import numpy as np
+cimport numpy as np
 
 cdef void cb(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol,
              const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
-    cdef float *ncb = <float *>user_data
     for i in range(num_infos):
         pass_filter[i] = True
-    ncb[0] += 1
     return
 
 
-def run(n_stop):
+cpdef run(n_stop, cfile=None):
+
+    # configure
     cdef Configuration config
-    config = cy_vysmaw.Configuration()
-    cdef unsigned long num_cbs = 0
+    if cfile:
+        print('Reading {0}'.format(cfile))
+        config = cy_vysmaw.Configuration(cfile)
+    else:
+        print('Using default vys configuration file')
+        config = cy_vysmaw.Configuration()
 
-    num_spectra = 0
-
+    cdef unsigned int num_spectra = 0
     cdef vysmaw_spectrum_filter *f = \
         <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
     f[0] = cb
-    cdef void **u = <void **>malloc(sizeof(void *))
-    u[0] = &num_cbs
-
-    handle, consumers = config.start(1, f, u)
-
+    handle, consumers = config.start(1, f, NULL)
     free(f)
-    free(u)
 
     cdef Consumer c0 = consumers[0]
     cdef vysmaw_message_queue queue = c0.queue()
     cdef vysmaw_message *msg = NULL
+    cdef np.ndarray[np.int_t, ndim=1, mode="c"] typecount = np.zeros(9, dtype=np.int)
 
-    bls = np.zeros((n_stop, 2))
-    times = np.zeros(n_stop)
-    specs = np.zeros(n_stop)
-    stokes = np.zeros(n_stop)
-
-    print('before while')
     while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (num_spectra < n_stop):
-        print('before msg pop')
-        msg = vysmaw_message_queue_timeout_pop(queue, 1000000)
+        msg = vysmaw_message_queue_timeout_pop(queue, 100000)
 
         if msg is not NULL:
-            print(str(' msg type: {0}'.format(msg[0].typ)))
-
-            if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-                print('valid. num_spectra={0}'.format(num_spectra))
-                py_msg = Message.wrap(msg)
-                print(str(py_msg))
-                bls[num_spectra] = np.asarray(py_msg.info.stations.memview)
-                times[num_spectra] = py_msg.info.timestamp/1e6
-                specs[num_spectra] = py_msg.info.spectral_window_index
-                stokes[num_spectra] = py_msg.info.polarization_product_id
-                print('unreffing py_msg')
-                py_msg.unref()
-                num_spectra += 1
-            else:
-                print('msg not valid buffer type')
-                vysmaw_message_unref(msg)
-        else:
-            print('NULL')
-
-    print('before shutdown')
+            num_spectra += 1
+            typecount[msg[0].typ] += 1
+            vysmaw_message_unref(msg)
+            
+        PyErr_CheckSignals()
 
     if handle is not None:
         handle.shutdown()
 
-    print('after shutdown')
-    return 'ok!'
-#    return (bls, times, specs, stokes)  # seg fault!
+    return typecount
