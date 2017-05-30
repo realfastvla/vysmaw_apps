@@ -97,7 +97,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
 #    cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
 
-    cdef np.ndarray[np.complex128_t, ndim=2, mode="c"] data = np.zeros(shape=(nspec, nchan), dtype='complex128')
+    cdef np.ndarray[np.complex128_t, ndim=3, mode="c"] data = np.zeros(shape=(nspec, nchan, npol), dtype='complex128')
 
     print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5} s)'.format(ni, nbl, nspec, t0, t1, timeout))
 
@@ -127,22 +127,18 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
 
 #                data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
 #                data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
-                data[spec, :].real = np.array(py_msg.buffer)[1::2]
-                data[spec, :].imag = np.array(py_msg.buffer)[1::2]
+                data[spec, :, pind].real = np.array(py_msg.buffer)[1::2]
+                data[spec, :, pind].imag = np.array(py_msg.buffer)[1::2]
 
                 spec = spec + 1
                 py_msg.unref()
 
             else:
-#                print('Got an invalid buffer of type {0}'.format(msg[0].typ))
+                print(str('uh oh: {0}'.format(message_types[msg[0].typ])))
                 vysmaw_message_unref(msg)
 
-        else:
-#            print('msg: NULL')
-            pass
-
         currenttime = time.time()
-        if currenttime > starttime and not spec % 100:
+        if not spec % 100:
             print('At spec {0}: {1} % of data in {2} % of time'.format(spec, 100*float(spec)/float(nspec), 100*(currenttime-starttime)/(t1-t0)))
 
         PyErr_CheckSignals()
@@ -159,7 +155,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
-                print(str('msg {0}'.format(message_types[msg[0].typ])))
+                print(str('{0}'.format(message_types[msg[0].typ])))
                 spec = spec + 1
 
     print('{0}/{1} spectra received'.format(spec, nspec))
