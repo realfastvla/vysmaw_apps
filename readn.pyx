@@ -24,24 +24,21 @@ message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+cdef void filter(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
-    cdef np.float64_t *select = <np.float64_t *>user_data
     cdef unsigned int i
 
     for i in range(num_infos):
-        ts = infos[i].timestamp/1e9
-        if select[0] <= ts and ts < select[1]:
-            pass_filter[i] = True
+        pass_filter[i] = True
 
     return
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef run(n_stop, t0, t1, cfile=None):
+cpdef run(n_stop, cfile=None):
 
     # configure
     cdef Configuration config
@@ -52,21 +49,14 @@ cpdef run(n_stop, t0, t1, cfile=None):
         print('Using default vys configuration file')
         config = cy_vysmaw.Configuration()
 
-    cdef np.ndarray[np.float64_t, ndim=1, mode="c"] windows = np.array([t0, t1], dtype=np.float64)
-    cdef void **u = <void **>malloc(sizeof(void *))
-    u[0] = &windows[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
-
     cdef unsigned int num_spectra = 0
     cdef vysmaw_spectrum_filter *f = \
         <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
  
-#    f[0] = cb
-    f[0] = filter_time
-#    handle, consumers = config.start(1, f, NULL)
-    handle, consumers = config.start(1, f, u)
+    f[0] = filter
+    handle, consumers = config.start(1, f, NULL)
 
     free(f)
-    free(u)
 
     cdef Consumer c0 = consumers[0]
     cdef vysmaw_message_queue queue = c0.queue()

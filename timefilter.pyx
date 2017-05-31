@@ -37,10 +37,6 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
         else:
             pass_filter[i] = False
 
-#        # test how many times this is called
-#        if select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]:
-#            select[2] = select[2] + 1
-
     return
 
 
@@ -99,11 +95,9 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cdef bool printed = 0
 
     cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants]) # 1 based
-#    cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(0, ind1)])
-    cdef list blarr = ['{0}-{1}'.format(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(0, ind1)]
+    cdef list blarr = ['{0}-{1}'.format(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(ind1)]
     cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
     cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
-#    cdef np.ndarray[np.complex128_t, ndim=3, mode="c"] data = np.zeros(shape=(nspec, nchan, npol), dtype='complex128')
 
     print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5} s)'.format(ni, nbl, nspec, t0, t1, timeout))
 
@@ -142,7 +136,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
                     spec = spec + 1
 
             else:
-                print(str('uh oh: {0}'.format(message_types[msg[0].typ])))
+                print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
                 vysmaw_message_unref(msg)
 #        else:
 #            print('NULL')
