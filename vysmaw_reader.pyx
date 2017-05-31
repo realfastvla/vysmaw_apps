@@ -1,4 +1,3 @@
-import os.path
 import time
 import cython
 from threading import Thread
@@ -25,6 +24,20 @@ message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+             uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+             void *user_data, bool *pass_filter) nogil:
+
+    cdef unsigned int i
+
+    for i in range(num_infos):
+        pass_filter[i] = True
+
+    return
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
@@ -33,11 +46,11 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef unsigned int i
 
     for i in range(num_infos):
-        pass_filter[i] = select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]
-
-        # test how many times this is called
-#        if select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]:
-#            select[2] = select[2] + 1
+        ts = infos[i].timestamp/1e9
+        if select[0] <= ts and ts < select[1]:
+            pass_filter[i] = True
+        else:
+            pass_filter[i] = False
 
     return
 
@@ -51,6 +64,8 @@ cdef class Reader(object):
     cdef Configuration config
     cdef list consumers
     cdef Handle handle
+    cdef unsigned int spec
+    cdef unsigned int nspec
 
 #    cdef Consumer c0  # crashes when trying to refer to this object in open
 #    cdef vysmaw_message_queue queue0 # crashes when trying to refer to this object in read
@@ -60,12 +75,13 @@ cdef class Reader(object):
 	    cfile is the vys/vysmaw configuration file.
 	"""
 
+
         self.t0 = t0
         self.t1 = t1
+        self.spec = 0
 
         # configure
         if cfile:
-            assert os.path.exists(cfile), 'Configuration file {0} not found.'.format(cfile)
             print('Reading {0}'.format(cfile))
             self.config = cy_vysmaw.Configuration(cfile)
         else:
@@ -109,83 +125,43 @@ cdef class Reader(object):
         free(u)
 
 
-    cpdef read(self, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, timeout=10, excludeants=[]):
+    cpdef read(self, nspec):
         """ Read data from consumers
         """
 
         cdef vysmaw_message *msg = NULL
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
-
-        cdef unsigned int ni = int(round((self.t1-self.t0)/(inttime_micros/1e6)))  # t1, t0 in seconds, i in microsec
-        cdef unsigned int nbl = nant*(nant-1)/2
-        cdef unsigned int nchantot = nspw*nchan
-        cdef unsigned int nspec = ni*nbl*nspw*npol
+        cdef np.ndarray[np.int_t, ndim=1, mode="c"] typecount = np.zeros(9, dtype=np.int)
         cdef long starttime = time.time()
         cdef long currenttime = starttime
+        cdef unsigned int frac
+        cdef bool printed = 0
 
-        cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(nant+len(excludeants)) if ant not in excludeants]) # 0 based
-#        cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants]) # 1 based
-        cdef np.ndarray[np.int_t, ndim=2, mode="c"] blarr = np.array([(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(0, ind1)])
-        cdef np.ndarray[np.complex128_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex128')
+        self.nspec = nspec
 
-        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
-
-        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5} s)'.format(ni, nbl, nspec, self.t0, self.t1, timeout))
-
-        # count until total number of spec is received or timeout elapses
-        cdef long spec = 0
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (currenttime - starttime < timeout):
+        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
-                print(str('msg {0}'.format(message_types[msg[0].typ])))
-                if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-                    py_msg = Message.wrap(msg)
-
-                    # get the goodies asap
-                    msg_time = py_msg.info.timestamp/1e9
-                    ch0 = nchan*py_msg.info.baseband_index  # TODO: need to be smarter here
-                    pind = py_msg.info.polarization_product_id
-                    stations = np.array(py_msg.info.stations)
-#                    print(msg_time, ch0, pind, stations)
-
-                    # TODO: may be smarter to define acceptable data from input parameters here. drop those that don't fit?
-                    hasstations = [np.all(bl == stations) for bl in blarr]
-                    if np.any(hasstations):
-#                        print('has baseline {0}'.format(stations))
-
-                        bind = np.where(hasstations)[0][0]
-                        iind = np.argmin(np.abs(timearr-msg_time))
-
-                        data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.spectrum)[::2]
-                        data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.spectrum)[1::2]
-
-                        spec = spec + 1
-                    else:
-#                        print('no such baseline expected {0}'.format(stations))
-                        pass
-
-                    py_msg.unref()
-
-                else:
-#                    print('Got an invalid buffer of type {0}'.format(msg[0].typ))
-                    vysmaw_message_unref(msg)
-
-            else:
-                print('msg: NULL')
-#                pass
-
-            currenttime = time.time()
-            if currenttime > starttime and spec % 10:
-                print('At spec {0}: {1} % of data in {2} % of time'.format(spec, 100*float(spec)/float(nspec), 100*(currenttime-starttime)/(self.t1-self.t0)))
-
+                self.spec += 1
+                typecount[msg[0].typ] += 1
+                vysmaw_message_unref(msg)
+            
             PyErr_CheckSignals()
 
+            currenttime = time.time()
+            frac = int(100.*self.spec/self.nspec)
+            if not (frac % 25):
+                if not printed:
+                    print('At spec {0}: {1:1.0f} % of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
+                    printed = 1
+            else:
+                printed = 0
 
-        print('{0}/{1} spectra received'.format(spec, nspec))
+        print('{0}/{1} spectra received'.format(self.spec, self.nspec))
 
-        return data
+        return typecount
 
 
     cpdef close(self):
@@ -199,8 +175,13 @@ cdef class Reader(object):
         if self.handle is not None:
             self.handle.shutdown()
 
-        print('Closing vysmaw handle. Remaining messages in queue:')
-        while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
-            if msg is not NULL:
-                print(str('msg {0}'.format(message_types[msg[0].typ])))
+        if self.spec < self.nspec:
+            print('Closing vysmaw handle. Remaining messages in queue:')
+            while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
+                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+
+                if msg is not NULL:
+                    print(str('{0}'.format(message_types[msg[0].typ])))
+                else:
+                    print('NULL')
+

@@ -34,6 +34,8 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
         ts = infos[i].timestamp/1e9
         if select[0] <= ts and ts < select[1]:
             pass_filter[i] = True
+        else:
+            pass_filter[i] = False
 
 #        # test how many times this is called
 #        if select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]:
