@@ -9,12 +9,12 @@ from libc.stdlib cimport *
 from cy_vysmaw cimport *
 import cy_vysmaw
 
-message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
+message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE,
 	      VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
 	      VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
 	      VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_VERSION_MISMATCH, 
 	      VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW, VYSMAW_MESSAGE_END],
-	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
+	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_ID_FAILURE",
 	      "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
 	      "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
 	      "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_VERSION_MISMATCH",
@@ -31,11 +31,13 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef unsigned int i
 
     for i in range(num_infos):
-        pass_filter[i] = select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]
+        ts = infos[i].timestamp/1e9
+        if select[0] <= ts and ts < select[1]:
+            pass_filter[i] = True
 
-        # test how many times this is called
-        if select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]:
-            select[2] = select[2] + 1
+#        # test how many times this is called
+#        if select[0] <= infos[i].timestamp/1e9 and infos[i].timestamp/1e9 < select[1]:
+#            select[2] = select[2] + 1
 
     return
 
@@ -54,10 +56,10 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
     cfile is the vys/vysmaw configuration file.
     """
 
-    count = 0  # pass this in to count number of callback function calls
+#    count = 0  # pass this in to count number of callback function calls
 
     # define time window
-    cdef np.ndarray[np.float64_t, ndim=1, mode="c"] windows = np.array([t0, t1, count], dtype=np.float64)
+    cdef np.ndarray[np.float64_t, ndim=1, mode="c"] windows = np.array([t0, t1], dtype=np.float64)
 
     # configure
     cdef Configuration config
@@ -103,7 +105,7 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
 
     # count until total number of spec is received or timeout elapses
     cdef long spec = 0
-    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (currenttime - starttime < timeout):
+    while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec):# and (currenttime - starttime < timeout):
         msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
         if msg is not NULL:
@@ -116,49 +118,52 @@ cpdef filter1(t0, t1, nant=3, nspw=1, nchan=64, npol=1, inttime_micros=1000000, 
                 ch0 = nchan*py_msg.info.baseband_index  # TODO: need to be smarter here
                 pind = py_msg.info.polarization_product_id
                 stations = np.array(py_msg.info.stations)
-#                print(msg_time, ch0, pind, stations)
+                spectrum = np.array(py_msg.spectrum, copy=True)  # ** slow, but helps to pull data early and unref
+                py_msg.unref()
 
+#                print(msg_time, ch0, pind, stations)
                 # TODO: may be smarter to define acceptable data from input parameters here. drop those that don't fit?
 #                hasstations = [np.all(bl == stations) for bl in blarr]  # way too slow
 #                print('has baseline {0}'.format(stations))
 
 #                bind = np.where(hasstations)[0][0]
-                iind = np.argmin(np.abs(timearr-msg_time))
+#                iind = np.argmin(np.abs(timearr-msg_time))
 
-#                data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
-#                data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
-                data[spec, :, pind].real = np.array(py_msg.buffer)[1::2]
-                data[spec, :, pind].imag = np.array(py_msg.buffer)[1::2]
+#                data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.spectrum)[::2]
+#                data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.spectrum)[1::2]
+
+                data[spec, :, pind].real = spectrum[::2] # ** slow
+                data[spec, :, pind].imag = spectrum[1::2] # ** slow
 
                 spec = spec + 1
-                py_msg.unref()
 
             else:
                 print(str('uh oh: {0}'.format(message_types[msg[0].typ])))
                 vysmaw_message_unref(msg)
+#        else:
+#            print('NULL')
 
         currenttime = time.time()
-        if not spec % 100:
-            print('At spec {0}: {1} % of data in {2} % of time'.format(spec, 100*float(spec)/float(nspec), 100*(currenttime-starttime)/(t1-t0)))
+        if not spec % 1000:
+            print('At spec {0}: {1} % of data in {2}x realtime'.format(spec, 100*float(spec)/float(nspec), (currenttime-starttime)/(t1-t0)))
 
         PyErr_CheckSignals()
 
     print('{0}/{1} spectra received'.format(spec, nspec))
-    print('{0} spectra in callback'.format(windows[2]))
+#    print('{0} spectra in callback'.format(windows[2]))
 
     if handle is not None:
         handle.shutdown()
 
     if spec < nspec:
         msg = NULL
+        print('Messages remaining on the queue:')
         while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
                 print(str('{0}'.format(message_types[msg[0].typ])))
-                spec = spec + 1
-
-    print('{0}/{1} spectra received'.format(spec, nspec))
-    print('{0} spectra in callback'.format(windows[2]))
+            else:
+                print('NULL')
 
     return data

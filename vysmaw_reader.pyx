@@ -11,12 +11,12 @@ from libc.stdlib cimport *
 from cy_vysmaw cimport *
 import cy_vysmaw
 
-message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_DIGEST_FAILURE,
+message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE,
 	      VYSMAW_MESSAGE_QUEUE_OVERFLOW, VYSMAW_MESSAGE_DATA_BUFFER_STARVATION,
 	      VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
 	      VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_VERSION_MISMATCH, 
 	      VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW, VYSMAW_MESSAGE_END],
-	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_DIGEST_FAILURE",
+	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_ID_FAILURE",
 	      "VYSMAW_MESSAGE_QUEUE_OVERFLOW", "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION",
 	      "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
 	      "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_VERSION_MISMATCH",
@@ -74,6 +74,11 @@ cdef class Reader(object):
 
 
     def __enter__(self):
+        """ Context management in Python.
+        """
+
+        # **TODO: Could start call to open at self.t0. This might avoid overutilizing resources of the handle.
+
         self.open()
         return self
 
@@ -153,8 +158,8 @@ cdef class Reader(object):
                         bind = np.where(hasstations)[0][0]
                         iind = np.argmin(np.abs(timearr-msg_time))
 
-                        data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.buffer)[::2]
-                        data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.buffer)[1::2]
+                        data[iind, bind, ch0:ch0+nchan, pind].real = np.array(py_msg.spectrum)[::2]
+                        data[iind, bind, ch0:ch0+nchan, pind].imag = np.array(py_msg.spectrum)[1::2]
 
                         spec = spec + 1
                     else:
