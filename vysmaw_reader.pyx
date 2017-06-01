@@ -185,7 +185,8 @@ cdef class Reader(object):
 
                         self.spec = self.spec + 1
                     else:
-                        print(blstr)
+#                        print(blstr)
+                        pass
 
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
