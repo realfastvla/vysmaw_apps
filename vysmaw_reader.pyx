@@ -142,8 +142,6 @@ cdef class Reader(object):
         cdef unsigned int nbl = nant*(nant-1)/2  # cross hands only
         cdef unsigned int nchantot = nspw*nchan
 
-        cdef long starttime = time.time()
-        cdef long currenttime = starttime
         cdef unsigned int frac
         cdef bool printed = 0
 
@@ -151,8 +149,10 @@ cdef class Reader(object):
         cdef list blarr = ['{0}-{1}'.format(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(ind1)]
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
         cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex64')
-
         self.nspec = ni*nbl*nspw*npol
+
+        cdef long starttime = time.time()
+        cdef long currenttime = starttime
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, timeout))
 
