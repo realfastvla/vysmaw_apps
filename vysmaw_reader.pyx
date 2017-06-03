@@ -94,7 +94,14 @@ cdef class Reader(object):
         """ Context management in Python.
         """
 
-        # **TODO: Could start call to open at self.t0. This might avoid overutilizing resources of the handle.
+        cdef long currenttime = time.time()
+
+
+        if currenttime < self.t0:
+            print('Holding for time {0}'.format(self.t0))
+            while currenttime < self.t0:
+                time.sleep(0.1)  # ** sensitive to this?
+                currenttime = time.time()
 
         self.open()
         return self
@@ -132,6 +139,7 @@ cdef class Reader(object):
 
     cpdef readwindow(self, nant, nspw, nchan, npol, inttime_micros, timeout=10, excludeants=[]):
         """ Read in the time window and place in numpy array of given shape
+        Timeout is time beyond the t1-t0 window.
         """
 
         cdef vysmaw_message *msg = NULL
@@ -154,10 +162,10 @@ cdef class Reader(object):
         cdef long starttime = time.time()
         cdef long currenttime = starttime
 
-        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, timeout))
+        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, timeout))
 
         # count until total number of spec is received or timeout elapses
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < timeout):
+        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < timeout + self.t1-self.t0):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
