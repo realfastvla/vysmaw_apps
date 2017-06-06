@@ -162,7 +162,7 @@ cdef class Reader(object):
         cdef long starttime = time.time()
         cdef long currenttime = starttime
 
-        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, timeout))
+        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, timeout))
 
         # count until total number of spec is received or timeout elapses
         while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < timeout + self.t1-self.t0):
