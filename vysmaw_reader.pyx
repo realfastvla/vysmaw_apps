@@ -98,7 +98,7 @@ cdef class Reader(object):
         if currenttime < self.t0:
             print('Holding for time {0}'.format(self.t0))
             while currenttime < self.t0:
-                time.sleep(0.1)  # ** sensitive to this?
+                time.sleep(0.01)  # ** sensitive to this?
                 currenttime = time.time()
 
         self.open()
@@ -265,11 +265,15 @@ cdef class Reader(object):
 
         if self.spec < self.nspec:
             print('Closing vysmaw handle. Remaining messages in queue:')
+            nulls = 0
             while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
                     print(str('{0}'.format(message_types[msg[0].typ])))
                 else:
-                    print('NULL')
+                    nulls += 1
+
+            if nulls:
+                print('and {0} NULLs'.format(nulls))
 
