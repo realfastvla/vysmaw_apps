@@ -174,7 +174,7 @@ cdef class Reader(object):
                     # get the goodies asap
                     msg_time = py_msg.info.timestamp/1e9
                     ch0 = nchan*py_msg.info.baseband_index  # ** TODO: need to be smarter here
-                    pind = py_msg.info.polarization_product_id
+                    pind = py_msg.info.polarization_product_id == 3 if npol == 2 else py_msg.info.polarization_product_id
 #                    print('ch0, pind: {0}, {1}'.format(ch0, pind))
                     blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
                     spectrum = np.array(py_msg.spectrum, copy=True)  # ** slow, but helps to pull data early and unref
