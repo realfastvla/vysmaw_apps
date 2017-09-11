@@ -160,6 +160,10 @@ cdef class Reader(object):
         cdef long starttime = time.time()
         cdef long currenttime = starttime
 
+        pindarr = [0, 1, 2, 3]
+        if npol == 2:
+            pindarr[3] = 1  # ugh
+
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, timeout))
 
         # count until total number of spec is received or timeout elapses
@@ -174,7 +178,8 @@ cdef class Reader(object):
                     # get the goodies asap
                     msg_time = py_msg.info.timestamp/1e9
                     ch0 = nchan*py_msg.info.baseband_index  # ** TODO: need to be smarter here
-                    pind = py_msg.info.polarization_product_id == 3 if npol == 2 else py_msg.info.polarization_product_id
+                    pind = pindarr[py_msg.info.polarization_product_id] 
+                    # == 3 if npol == 2 else py_msg.info.polarization_product_id
 #                    print('ch0, pind: {0}, {1}'.format(ch0, pind))
                     blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
                     spectrum = np.array(py_msg.spectrum, copy=True)  # ** slow, but helps to pull data early and unref
