@@ -135,7 +135,7 @@ cdef class Reader(object):
         free(u)
 
 
-    cpdef readwindow(self, antnums, nspw, nchan, npol, inttime_micros, timeout=10, excludeants=[]):
+    cpdef readwindow(self, antlist, nspw, nchan, npol, inttime_micros, timeout=10, excludeants=[]):
         """ Read in the time window and place in numpy array of given shape
 	antnums is list of antenna numbers (1-based)
         Timeout is time beyond the t1-t0 window.
@@ -146,14 +146,14 @@ cdef class Reader(object):
         cdef vysmaw_message_queue queue0 = c0.queue()
 
         cdef unsigned int ni = int(round((self.t1-self.t0)/(inttime_micros/1e6)))  # t1, t0 in seconds, i in microsec
-	cdef unsigned int nant = len(antnums)
+        cdef unsigned int nant = len(antlist)
         cdef unsigned int nbl = nant*(nant-1)/2  # cross hands only
         cdef unsigned int nchantot = nspw*nchan
 
         cdef unsigned int frac
         cdef bool printed = 0
 
-        cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array(antnums)
+        cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array(antlist)
 #        cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array([ant for ant in np.arange(1, nant+1+len(excludeants)) if ant not in excludeants]) # 1 based
         cdef list blarr = ['{0}-{1}'.format(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(ind1)]
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
