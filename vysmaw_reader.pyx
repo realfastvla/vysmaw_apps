@@ -59,6 +59,7 @@ cdef class Reader(object):
 
     cdef double t0
     cdef double t1
+    cdef int timeout
     cdef Configuration config
     cdef list consumers
     cdef Handle handle
@@ -68,8 +69,7 @@ cdef class Reader(object):
 #    cdef Consumer c0  # crashes when trying to refer to this object in open
 #    cdef vysmaw_message_queue queue0 # crashes when trying to refer to this object in read
 
-
-    def __cinit__(self, double t0 = 0, double t1 = 0, str cfile = None, timeout=10):
+    def __cinit__(self, double t0 = 0, double t1 = 0, str cfile = None, int timeout = 10):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
@@ -137,12 +137,12 @@ cdef class Reader(object):
         free(u)
 
 
-    cpdef readwindow(self, antlist, spwlist, nchan, npol, inttime_micros):
+    cpdef readwindow(self, antlist, spwlist, nchan, pollist, inttime_micros):
         """ Read in the time window and place in numpy array of given shape
         antlist is list of antenna numbers (1-based)
         spwlist is list of "bbname-spwnum".
         nchan is number of channels per subband, assumed equal for all subbands received.
-        npol is the number of polarizations expected. **TODO update to list
+        pollist is list of polarizations expected.
         """
 
         cdef vysmaw_message *msg = NULL
@@ -153,25 +153,21 @@ cdef class Reader(object):
         cdef unsigned int nant = len(antlist)
         cdef unsigned int nbl = nant*(nant-1)/2  # cross hands only
         cdef unsigned int nspw = len(spwlist)
+        cdef unsigned int npoll = len(pollist)
         cdef unsigned int nchantot = nspw*nchan
-        cdef list bbmap = ['A1C1', 'A2C2', 'AC', 'B1D1', 'B2D2', 'BD']  # this should work. why is bbid=0 or 1?
-#        cdef list polmap = ['AA', 'AB', 'BA', 'BB']  # **TODO
+        cdef list bbmap = ['A1C1', 'A2C2', 'AC', 'B1D1', 'B2D2', 'BD']
+        cdef list polmap = ['A*A', 'A*B', 'B*A', 'B*B']
+
         cdef unsigned int frac
         cdef bool printed = 0
 
-        cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array(antlist)
-        cdef list blarr = ['{0}-{1}'.format(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(ind1)]
-
+        cdef list blarr = ['{0}-{1}'.format(antlist[ind0], antlist[ind1]) for ind1 in range(len(antlist)) for ind0 in range(ind1)]
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
         cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex64')
         self.nspec = ni*nbl*nspw*npol
 
         cdef long starttime = time.time()
         cdef long currenttime = starttime
-
-        pindarr = [0, 1, 2, 3]
-        if npol == 2:
-            pindarr[3] = 1  # ugh
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, self.timeout))
 
@@ -186,21 +182,21 @@ cdef class Reader(object):
 
                     # get the goodies asap
                     msg_time = py_msg.info.timestamp/1e9
+                    iind = np.argmin(np.abs(timearr-msg_time))
                     bbid = py_msg.info.baseband_id
                     spid = py_msg.info.spectral_window_index
-#                    print(bbid, spid)
                     ch0 = nchan*spwlist.index('{0}-{1}'.format(bbmap[bbid], spid))
-                    pind = pindarr[py_msg.info.polarization_product_id]
-#                    print('ch0, pind: {0}, {1}'.format(ch0, pind))
-                    iind = np.argmin(np.abs(timearr-msg_time))
-                    blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
+                    pind = pollist.index(polmap[py_msg.info.polarization_product_id])
                     spectrum = np.array(py_msg.spectrum, copy=True)  # ** slow, but helps to pull data early and unref
+                    blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
                     py_msg.unref()
+
                     if blstr in blarr:
                         bind = blarr.index(blstr)
                         data[iind, bind, ch0:ch0+nchan, pind].real = spectrum[::2] # slow
                         data[iind, bind, ch0:ch0+nchan, pind].imag = spectrum[1::2] # slow
                         self.spec = self.spec + 1
+
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
                     vysmaw_message_unref(msg)
