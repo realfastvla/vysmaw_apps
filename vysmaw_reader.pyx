@@ -151,15 +151,13 @@ cdef class Reader(object):
         cdef unsigned int nbl = nant*(nant-1)/2  # cross hands only
         cdef unsigned int nspw = len(spwlist)
         cdef unsigned int nchantot = nspw*nchan
-
+        cdef list bbmap = ['A1C1', 'A2C2', 'AC', 'B1D1', 'B2D2', 'BD']  # this should work. why is bbid=0 or 1?
+#        cdef list bbmap = ['AC', 'BD']
         cdef unsigned int frac
         cdef bool printed = 0
 
         cdef np.ndarray[np.int_t, ndim=1, mode="c"] antarr = np.array(antlist)
         cdef list blarr = ['{0}-{1}'.format(antarr[ind0], antarr[ind1]) for ind1 in range(len(antarr)) for ind0 in range(ind1)]
-
-        # assume nchan per spw
-        cdef list bbmap = ["AC", "BD"]
 
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
         cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex64')
@@ -173,6 +171,7 @@ cdef class Reader(object):
             pindarr[3] = 1  # ugh
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, timeout))
+        print('spwlist:', spwlist)
 
         # count until total number of spec is received or timeout elapses
         while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < timeout + self.t1-self.t0):
@@ -185,9 +184,10 @@ cdef class Reader(object):
 
                     # get the goodies asap
                     msg_time = py_msg.info.timestamp/1e9
-                    bbid = py_msg.info.baseband_index
+                    bbid = py_msg.info.baseband_id
                     spid = py_msg.info.spectral_window_index
-                    ch0 = nchan*bbmap.index('{0}-{1}'.format(bbid, spid))
+#                    print(bbid, spid)
+                    ch0 = nchan*spwlist.index('{0}-{1}'.format(bbmap[bbid], spid))
                     pind = pindarr[py_msg.info.polarization_product_id]
                     # == 3 if npol == 2 else py_msg.info.polarization_product_id
 #                    print('ch0, pind: {0}, {1}'.format(ch0, pind))
