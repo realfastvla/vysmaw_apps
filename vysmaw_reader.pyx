@@ -69,15 +69,17 @@ cdef class Reader(object):
 #    cdef vysmaw_message_queue queue0 # crashes when trying to refer to this object in read
 
 
-    def __cinit__(self, double t0 = 0, double t1 = 0, str cfile = None):
+    def __cinit__(self, double t0 = 0, double t1 = 0, str cfile = None, timeout=10):
         """ Open reader with time filter from t0 to t1 in unix seconds
-	    If t0/t1 left at default values of 0, then all times accepted.
+            If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
+            timeout is time beyond the t1-t0 window.
 	"""
 
         self.t0 = t0
         self.t1 = t1
         self.spec = 0
+        self.timeout = timeout
 
         # configure
         if cfile:
@@ -135,11 +137,12 @@ cdef class Reader(object):
         free(u)
 
 
-    cpdef readwindow(self, antlist, spwlist, nchan, npol, inttime_micros, timeout=10):
+    cpdef readwindow(self, antlist, spwlist, nchan, npol, inttime_micros):
         """ Read in the time window and place in numpy array of given shape
         antlist is list of antenna numbers (1-based)
         spwlist is list of "bbname-spwnum".
-        Timeout is time beyond the t1-t0 window.
+        nchan is number of channels per subband, assumed equal for all subbands received.
+        npol is the number of polarizations expected. **TODO update to list
         """
 
         cdef vysmaw_message *msg = NULL
@@ -152,7 +155,7 @@ cdef class Reader(object):
         cdef unsigned int nspw = len(spwlist)
         cdef unsigned int nchantot = nspw*nchan
         cdef list bbmap = ['A1C1', 'A2C2', 'AC', 'B1D1', 'B2D2', 'BD']  # this should work. why is bbid=0 or 1?
-#        cdef list bbmap = ['AC', 'BD']
+#        cdef list polmap = ['AA', 'AB', 'BA', 'BB']  # **TODO
         cdef unsigned int frac
         cdef bool printed = 0
 
@@ -170,11 +173,10 @@ cdef class Reader(object):
         if npol == 2:
             pindarr[3] = 1  # ugh
 
-        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, timeout))
-        print('spwlist:', spwlist)
+        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, self.timeout))
 
         # count until total number of spec is received or timeout elapses
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < timeout + self.t1-self.t0):
+        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
@@ -189,26 +191,16 @@ cdef class Reader(object):
 #                    print(bbid, spid)
                     ch0 = nchan*spwlist.index('{0}-{1}'.format(bbmap[bbid], spid))
                     pind = pindarr[py_msg.info.polarization_product_id]
-                    # == 3 if npol == 2 else py_msg.info.polarization_product_id
 #                    print('ch0, pind: {0}, {1}'.format(ch0, pind))
+                    iind = np.argmin(np.abs(timearr-msg_time))
                     blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
                     spectrum = np.array(py_msg.spectrum, copy=True)  # ** slow, but helps to pull data early and unref
                     py_msg.unref()
-
                     if blstr in blarr:
                         bind = blarr.index(blstr)
-#                        print('bl: {0}, {1}'.format(blstr, bind))
-                        iind = np.argmin(np.abs(timearr-msg_time))
-#                        print('time: {0}, {1}'.format(msg_time, iind))
-
                         data[iind, bind, ch0:ch0+nchan, pind].real = spectrum[::2] # slow
                         data[iind, bind, ch0:ch0+nchan, pind].imag = spectrum[1::2] # slow
-
                         self.spec = self.spec + 1
-                    else:
-#                        print(blstr)
-                        pass
-
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
                     vysmaw_message_unref(msg)
@@ -275,20 +267,25 @@ cdef class Reader(object):
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
 
+ #       print(message_types)
+ #       msgcnt = dict(zip(message_types.values(), [0]*len(message_types)))
+ #       print(msgcnt)
+
         if self.handle is not None:
             self.handle.shutdown()
 
         if self.spec < self.nspec:
-            print('Closing vysmaw handle. Remaining messages in queue:')
             nulls = 0
             while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
-                    print(str('{0}'.format(message_types[msg[0].typ])))
+                    pass
+#                    msgcnt[msg[0].typ] += 1
                 else:
                     nulls += 1
 
-            if nulls:
-                print('and {0} NULLs'.format(nulls))
+#            print('Closing vysmaw handle. Remaining messages in queue: {0}'.format(msgcnt))
+#            if nulls:
+#                print('and {0} NULLs'.format(nulls))
 
