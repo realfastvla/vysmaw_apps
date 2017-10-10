@@ -153,7 +153,7 @@ cdef class Reader(object):
         cdef unsigned int nant = len(antlist)
         cdef unsigned int nbl = nant*(nant-1)/2  # cross hands only
         cdef unsigned int nspw = len(spwlist)
-        cdef unsigned int npoll = len(pollist)
+        cdef unsigned int npol = len(pollist)
         cdef unsigned int nchantot = nspw*nchan
         cdef list bbmap = ['A1C1', 'A2C2', 'AC', 'B1D1', 'B2D2', 'BD']
         cdef list polmap = ['A*A', 'A*B', 'B*A', 'B*B']
