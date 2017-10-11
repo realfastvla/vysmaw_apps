@@ -153,12 +153,12 @@ cdef class Reader(object):
         free(u)
 
 
-    cpdef readwindow(self, antlist, spwlist, nchan, pollist, inttime_micros):
+    cpdef readwindow(self, antlist, bbsplist, nchan, pollist, inttime_micros):
         """ Read in the time window and place in numpy array of given shape
         antlist is list of antenna numbers (1-based)
-        spwlist is list of "bbname-spwnum".
+        bbsplist is list of "bbid-spwid" and where to place them.
         nchan is number of channels per subband, assumed equal for all subbands received.
-        pollist is list of polarizations expected.
+        pollist is list polarization indexes and where to place them.
         """
 
         cdef vysmaw_message *msg = NULL
@@ -168,11 +168,9 @@ cdef class Reader(object):
         cdef unsigned int ni = int(round((self.t1-self.t0)/(inttime_micros/1e6)))  # t1, t0 in seconds, i in microsec
         cdef unsigned int nant = len(antlist)
         cdef unsigned int nbl = nant*(nant-1)/2  # cross hands only
-        cdef unsigned int nspw = len(spwlist)
+        cdef unsigned int nspw = len(bbsplist)
         cdef unsigned int npol = len(pollist)
         cdef unsigned int nchantot = nspw*nchan
-        cdef list bbmap = ['A1C1', 'A2C2', 'AC', 'B1D1', 'B2D2', 'BD']
-        cdef list polmap = ['A*A', 'A*B', 'B*A', 'B*B']
 
         cdef unsigned int frac
         cdef unsigned int bind
@@ -204,19 +202,28 @@ cdef class Reader(object):
                     bbid = py_msg.info.baseband_id
                     spid = py_msg.info.spectral_window_index
 #                    print(bbid, spid)
-                    ch0 = nchan*spwlist.index('{0}-{1}'.format(bbmap[bbid], spid))
-                    pind = pollist.index(polmap[py_msg.info.polarization_product_id])
-                    blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
+                    ch0 = nchan*bbsplist.index('{0}-{1}'.format(bbid, spid))
 
+                    # find pol in pollist
+                    pind0 = -1
+                    for pind in range(len(pollist)):
+                        if py_msg.info.polarization_product_id == pollist[pind]:
+                            pind0 = pind
+                            break
+
+                    # find bl i blarr
+                    blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
                     bind0 = -1
                     for bind in range(len(blarr)):
                         if blstr == blarr[bind]:
                             bind0 = bind
                             break
-                    if bind0 > -1:
+
+                    # put data in numpy array, if an index exists
+                    if bind0 > -1 and pind0 > -1:
                         spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
-                        data[iind, bind, ch0:ch0+nchan, pind].real = spectrum[::2] # slow
-                        data[iind, bind, ch0:ch0+nchan, pind].imag = spectrum[1::2] # slow
+                        data[iind, bind0, ch0:ch0+nchan, pind0].real = spectrum[::2] # slow
+                        data[iind, bind0, ch0:ch0+nchan, pind0].imag = spectrum[1::2] # slow
                         self.spec = self.spec + 1
 
                     py_msg.unref()  # this may be optional
@@ -304,7 +311,7 @@ cdef class Reader(object):
                 else:
                     nulls += 1
 
-            print('Closing vysmaw handle. Remaining messages in queue: {0}'.format(msgcnt))
+            print('Remaining messages in queue: {0}'.format(msgcnt))
             if nulls:
                 print('and {0} NULLs'.format(nulls))
 
