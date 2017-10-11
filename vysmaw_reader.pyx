@@ -20,6 +20,15 @@ message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE
 	      "VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW", "VYSMAW_MESSAGE_END"]))
 
 
+#cdef class arguments:
+#    cdef float t0
+#    cdef float t1
+#
+#    def __cinit__(self, t0, t1):
+#        self.t0 = t0
+#        self.t1 = t1
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
@@ -43,9 +52,13 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef np.float64_t *select = <np.float64_t *>user_data
     cdef unsigned int i
 
+    cdef np.float64_t t0 = select[0]
+    cdef np.float64_t t1 = select[1]
+    cdef np.float64_t bbid = select[2]
+
     for i in range(num_infos):
         ts = infos[i].timestamp/1e9
-        if select[0] <= ts and ts < select[1]:
+        if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
             pass_filter[i] = False
@@ -95,12 +108,12 @@ cdef class Reader(object):
         """
 
         cdef long currenttime = time.time()
+        cdef int offset = 4  # seconds early to open handle
 
-
-        if currenttime < self.t0:
+        if currenttime < self.t0 - offset:
             print('Holding for time {0}'.format(self.t0))
             while currenttime < self.t0:
-                time.sleep(0.01)  # ** sensitive to this?
+                time.sleep(0.1)  # ** sensitive to this?
                 currenttime = time.time()
 
         self.open()
@@ -115,12 +128,15 @@ cdef class Reader(object):
         """ Create the handle and consumers
         """
 
-        # define time window
-        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] windows = np.array([self.t0, self.t1], dtype=np.float64)
+        # define filter inputs
+        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] window = np.array([self.t0, self.t1], dtype=np.float64)
+        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] bbids = np.array([0], dtype=np.float64)
+        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.concatenate((window, bbids))
 
         # set windows
         cdef void **u = <void **>malloc(sizeof(void *))
-        u[0] = &windows[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
+        u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
+#        u[0] = arguments(self.t0, self.t1)
 
         # set filters
         cdef vysmaw_spectrum_filter *f = \
@@ -159,6 +175,8 @@ cdef class Reader(object):
         cdef list polmap = ['A*A', 'A*B', 'B*A', 'B*B']
 
         cdef unsigned int frac
+        cdef unsigned int bind
+        cdef int bind0
         cdef bool printed = 0
 
         cdef list blarr = ['{0}-{1}'.format(antlist[ind0], antlist[ind1]) for ind1 in range(len(antlist)) for ind0 in range(ind1)]
@@ -185,17 +203,23 @@ cdef class Reader(object):
                     iind = np.argmin(np.abs(timearr-msg_time))
                     bbid = py_msg.info.baseband_id
                     spid = py_msg.info.spectral_window_index
+#                    print(bbid, spid)
                     ch0 = nchan*spwlist.index('{0}-{1}'.format(bbmap[bbid], spid))
                     pind = pollist.index(polmap[py_msg.info.polarization_product_id])
-                    spectrum = np.array(py_msg.spectrum, copy=True)  # ** slow, but helps to pull data early and unref
                     blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
-                    py_msg.unref()
 
-                    if blstr in blarr:
-                        bind = blarr.index(blstr)
+                    bind0 = -1
+                    for bind in range(len(blarr)):
+                        if blstr == blarr[bind]:
+                            bind0 = bind
+                            break
+                    if bind0 > -1:
+                        spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
                         data[iind, bind, ch0:ch0+nchan, pind].real = spectrum[::2] # slow
                         data[iind, bind, ch0:ch0+nchan, pind].imag = spectrum[1::2] # slow
                         self.spec = self.spec + 1
+
+                    py_msg.unref()  # this may be optional
 
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
@@ -205,7 +229,7 @@ cdef class Reader(object):
             frac = int(100.*self.spec/self.nspec)
             if not (frac % 25):
                 if not printed:
-                    print('At spec {0}: {1:1.0f} % of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
+                    print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
                     printed = 1
             else:
                 printed = 0
@@ -263,11 +287,10 @@ cdef class Reader(object):
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
 
- #       print(message_types)
- #       msgcnt = dict(zip(message_types.values(), [0]*len(message_types)))
- #       print(msgcnt)
+        msgcnt = dict(zip(message_types.keys(), [0]*len(message_types)))
 
         if self.handle is not None:
+            print('Shutting vysmaw down...')
             self.handle.shutdown()
 
         if self.spec < self.nspec:
@@ -277,11 +300,11 @@ cdef class Reader(object):
 
                 if msg is not NULL:
                     pass
-#                    msgcnt[msg[0].typ] += 1
+                    msgcnt[msg[0].typ] += 1
                 else:
                     nulls += 1
 
-#            print('Closing vysmaw handle. Remaining messages in queue: {0}'.format(msgcnt))
-#            if nulls:
-#                print('and {0} NULLs'.format(nulls))
+            print('Closing vysmaw handle. Remaining messages in queue: {0}'.format(msgcnt))
+            if nulls:
+                print('and {0} NULLs'.format(nulls))
 
