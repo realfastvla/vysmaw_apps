@@ -112,7 +112,7 @@ cdef class Reader(object):
 
         if currenttime < self.t0 - offset:
             print('Holding for time {0}'.format(self.t0))
-            while currenttime < self.t0:
+            while currenttime < self.t0 - offset:
                 time.sleep(0.1)  # ** sensitive to this?
                 currenttime = time.time()
 
@@ -186,6 +186,7 @@ cdef class Reader(object):
         cdef long currenttime = starttime
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, self.timeout))
+#        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
         # count until total number of spec is received or timeout elapses
         while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0):
@@ -206,6 +207,7 @@ cdef class Reader(object):
 
                     # find pol in pollist
                     pind0 = -1
+#                    print('polid {0}'.format(py_msg.info.polarization_product_id))
                     for pind in range(len(pollist)):
                         if py_msg.info.polarization_product_id == pollist[pind]:
                             pind0 = pind
@@ -213,6 +215,7 @@ cdef class Reader(object):
 
                     # find bl i blarr
                     blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
+#                    print('blstr: {0} {1}'.format(blstr, type(blstr)))
                     bind0 = -1
                     for bind in range(len(blarr)):
                         if blstr == blarr[bind]:
@@ -225,6 +228,9 @@ cdef class Reader(object):
                         data[iind, bind0, ch0:ch0+nchan, pind0].real = spectrum[::2] # slow
                         data[iind, bind0, ch0:ch0+nchan, pind0].imag = spectrum[1::2] # slow
                         self.spec = self.spec + 1
+                    else:
+                        pass
+#                        print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
 
                     py_msg.unref()  # this may be optional
 
@@ -242,6 +248,9 @@ cdef class Reader(object):
                 printed = 0
 
             PyErr_CheckSignals()
+
+        if currenttime-starttime >= self.timeout:
+            print('Exiting read loop after reaching timeout of {0}s'.format(self.timeout))
 
         print('{0}/{1} spectra received'.format(self.spec, self.nspec))
         return data
@@ -306,10 +315,13 @@ cdef class Reader(object):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
-                    pass
                     msgcnt[msg[0].typ] += 1
+#                    print(msg[0].typ)
                 else:
                     nulls += 1
+#                    print("NULL")
+
+                PyErr_CheckSignals()
 
             print('Remaining messages in queue: {0}'.format(msgcnt))
             if nulls:
