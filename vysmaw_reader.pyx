@@ -74,6 +74,7 @@ cdef class Reader(object):
     cdef double t1
     cdef int timeout
     cdef Configuration config
+    cdef int offset
     cdef list consumers
     cdef Handle handle
     cdef unsigned int spec   # counter of number of spectra received
@@ -94,6 +95,8 @@ cdef class Reader(object):
         self.spec = 0
         self.timeout = timeout
 
+        self.offset = 4  # (integer) seconds early to open handle
+
         # configure
         if cfile:
             print('Reading {0}'.format(cfile))
@@ -108,11 +111,10 @@ cdef class Reader(object):
         """
 
         cdef long currenttime = time.time()
-        cdef int offset = 4  # seconds early to open handle
 
-        if currenttime < self.t0 - offset:
+        if currenttime < self.t0 - self.offset:
             print('Holding for time {0}'.format(self.t0))
-            while currenttime < self.t0 - offset:
+            while currenttime < self.t0 - self.offset:
                 time.sleep(0.1)  # ** sensitive to this?
                 currenttime = time.time()
 
@@ -189,7 +191,7 @@ cdef class Reader(object):
 #        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
         # count until total number of spec is received or timeout elapses
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0):
+        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0) and (currenttime < self.t1+self.offset):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
@@ -224,6 +226,9 @@ cdef class Reader(object):
 
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and pind0 > -1:
+#                        print('For iind, bind0, ch0, nchan, pind0: {0}, {1}, {2}, {3}, {4}...'.format(iind, bind0, ch0, nchan, pind0))
+#                        print('\tspectrum pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.spectrum))
+#                        print('\tbuffer pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.buffer))
                         spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
                         data[iind, bind0, ch0:ch0+nchan, pind0].real = spectrum[::2] # slow
                         data[iind, bind0, ch0:ch0+nchan, pind0].imag = spectrum[1::2] # slow
@@ -249,8 +254,10 @@ cdef class Reader(object):
 
             PyErr_CheckSignals()
 
-        if currenttime-starttime >= self.timeout:
+        if currenttime-starttime >= self.timeout + self.t1-self.t0:
             print('Exiting read loop after reaching timeout of {0}s'.format(self.timeout))
+        elif currenttime > self.t1+self.offset:
+            print('Current time {0} is after end of window {1}'.format(currenttime, self.t1))
 
         print('{0}/{1} spectra received'.format(self.spec, self.nspec))
         return data
