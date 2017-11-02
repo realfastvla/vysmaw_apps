@@ -113,9 +113,9 @@ cdef class Reader(object):
         cdef long currenttime = time.time()
 
         if currenttime < self.t0 - self.offset:
-            print('Holding for time {0}'.format(self.t0))
+            print('Holding for time {0} (less offset {1})'.format(self.t0, self.offset))
             while currenttime < self.t0 - self.offset:
-                time.sleep(0.1)  # ** sensitive to this?
+                time.sleep(0.1)
                 currenttime = time.time()
 
         self.open()
@@ -190,76 +190,81 @@ cdef class Reader(object):
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, self.timeout))
 #        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
-        # count until total number of spec is received or timeout elapses
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0) and (currenttime < self.t1+self.offset):
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+        if starttime < self.t1 + self.offset:
+            # count until total number of spec is received or timeout elapses
+            while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0 + self.offset):
+                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-            if msg is not NULL:
-#            print(str('msg {0}'.format(message_types[msg[0].typ])))
-                if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-                    py_msg = Message.wrap(msg)
+                if msg is not NULL:
+                    if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
+                        py_msg = Message.wrap(msg)
 
-                    # get the goodies asap
-                    msg_time = py_msg.info.timestamp/1e9
-                    iind = np.argmin(np.abs(timearr-msg_time))
-                    bbid = py_msg.info.baseband_id
-                    spid = py_msg.info.spectral_window_index
-#                    print(bbid, spid)
-                    ch0 = nchan*bbsplist.index('{0}-{1}'.format(bbid, spid))
+                        # get the goodies asap
+                        msg_time = py_msg.info.timestamp/1e9
+                        iind = np.argmin(np.abs(timearr-msg_time))
+                        bbid = py_msg.info.baseband_id
+                        spid = py_msg.info.spectral_window_index
+                        ch0 = nchan*bbsplist.index('{0}-{1}'.format(bbid, spid))
 
-                    # find pol in pollist
-                    pind0 = -1
-#                    print('polid {0}'.format(py_msg.info.polarization_product_id))
-                    for pind in range(len(pollist)):
-                        if py_msg.info.polarization_product_id == pollist[pind]:
-                            pind0 = pind
-                            break
+                        # find pol in pollist
+                        pind0 = -1
+#                        print('polid {0}'.format(py_msg.info.polarization_product_id))
+                        for pind in range(len(pollist)):
+                            if py_msg.info.polarization_product_id == pollist[pind]:
+                                pind0 = pind
+                                break
 
-                    # find bl i blarr
-                    blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
-#                    print('blstr: {0} {1}'.format(blstr, type(blstr)))
-                    bind0 = -1
-                    for bind in range(len(blarr)):
-                        if blstr == blarr[bind]:
-                            bind0 = bind
-                            break
+                        # find bl i blarr
+                        blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
+#                        print('blstr: {0} {1}'.format(blstr, type(blstr)))
+                        bind0 = -1
+                        for bind in range(len(blarr)):
+                            if blstr == blarr[bind]:
+                                bind0 = bind
+                                break
 
-                    # put data in numpy array, if an index exists
-                    if bind0 > -1 and pind0 > -1:
-#                        print('For iind, bind0, ch0, nchan, pind0: {0}, {1}, {2}, {3}, {4}...'.format(iind, bind0, ch0, nchan, pind0))
-#                        print('\tspectrum pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.spectrum))
-#                        print('\tbuffer pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.buffer))
-                        spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
-                        data[iind, bind0, ch0:ch0+nchan, pind0].real = spectrum[::2] # slow
-                        data[iind, bind0, ch0:ch0+nchan, pind0].imag = spectrum[1::2] # slow
-                        self.spec = self.spec + 1
+                        # put data in numpy array, if an index exists
+                        if bind0 > -1 and pind0 > -1:
+#                            print('For iind, bind0, ch0, nchan, pind0: {0}, {1}, {2}, {3}, {4}...'.format(iind, bind0, ch0, nchan, pind0))
+#                            print('\tspectrum pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.spectrum))
+#                            print('\tbuffer pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.buffer))
+                            spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
+                            data[iind, bind0, ch0:ch0+nchan, pind0].real = spectrum[::2] # slow
+                            data[iind, bind0, ch0:ch0+nchan, pind0].imag = spectrum[1::2] # slow
+                            self.spec = self.spec + 1
+                        else:
+                            pass
+#                            print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
+
+                        py_msg.unref()  # this may be optional
+
                     else:
-                        pass
-#                        print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
+                        print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
+                        vysmaw_message_unref(msg)
 
-                    py_msg.unref()  # this may be optional
-
+                currenttime = time.time()
+                frac = int(100.*self.spec/self.nspec)
+                if not (frac % 20) and frac > 0:
+                    if not printed:
+                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
+                        printed = 1
                 else:
-                    print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
-                    vysmaw_message_unref(msg)
+                    printed = 0
 
-            currenttime = time.time()
-            frac = int(100.*self.spec/self.nspec)
-            if not (frac % 25):
-                if not printed:
-                    print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
-                    printed = 1
-            else:
-                printed = 0
+                PyErr_CheckSignals()
 
-            PyErr_CheckSignals()
+            # after while loop, check reason for ending
+            if currenttime-starttime >= self.timeout + self.t1-self.t0 + self.offset:
+                print('Reached timeout of {0}s. Exiting...'.format(self.timeout))
+            elif msg is not NULL:
+                if msg[0].typ is VYSMAW_MESSAGE_END:
+                    print('Received VYSMAW_MESSAGE_END. Exiting...')
+                
+            print('{0}/{1} spectra received'.format(self.spec, self.nspec))
 
-        if currenttime-starttime >= self.timeout + self.t1-self.t0:
-            print('Exiting read loop after reaching timeout of {0}s'.format(self.timeout))
-        elif currenttime > self.t1+self.offset:
-            print('Current time {0} is after end of window {1}'.format(currenttime, self.t1))
+        else:
+            print('Start time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(starttime, self.t1, self.offset))
 
-        print('{0}/{1} spectra received'.format(self.spec, self.nspec))
         return data
 
 
