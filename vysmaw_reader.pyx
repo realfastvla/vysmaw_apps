@@ -1,4 +1,9 @@
-import time
+import time as pytime
+from libc.time cimport time_t
+cdef extern from "time.h" nogil:
+    ctypedef int time_t
+    time_t time(time_t*)
+
 import cython
 from threading import Thread
 from cpython cimport PyErr_CheckSignals
@@ -66,6 +71,7 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     return
 
 
+@cython.final
 cdef class Reader(object):
     """ Object to manage open, read, close for vysmaw application
     """
@@ -79,6 +85,7 @@ cdef class Reader(object):
     cdef Handle handle
     cdef unsigned int spec   # counter of number of spectra received
     cdef unsigned int nspec  # number of spectra expected
+    cdef long currenttime
 
 #    cdef Consumer c0  # crashes when trying to refer to this object in open
 #    cdef vysmaw_message_queue queue0 # crashes when trying to refer to this object in read
@@ -87,12 +94,13 @@ cdef class Reader(object):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
-            timeout is time beyond the t1-t0 window.
+            timeout is wait time factor that scales time as timeout*(t1-t0).
 	"""
 
         self.t0 = t0
         self.t1 = t1
         self.spec = 0
+        self.nspec = 0
         self.timeout = timeout
 
         self.offset = 4  # (integer) seconds early to open handle
@@ -110,13 +118,13 @@ cdef class Reader(object):
         """ Context management in Python.
         """
 
-        cdef long currenttime = time.time()
+        self.currenttime = time(NULL)
 
-        if currenttime < self.t0 - self.offset:
+        if self.currenttime < self.t0 - self.offset:
             print('Holding for time {0} (less offset {1})'.format(self.t0, self.offset))
-            while currenttime < self.t0 - self.offset:
-                time.sleep(0.1)
-                currenttime = time.time()
+            while self.currenttime < self.t0 - self.offset:
+                pytime.sleep(0.1)
+                self.currenttime = time(NULL)
 
         self.open()
         return self
@@ -154,7 +162,9 @@ cdef class Reader(object):
         free(f)
         free(u)
 
-
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cpdef readwindow(self, antlist, bbsplist, nchan, pollist, inttime_micros):
         """ Read in the time window and place in numpy array of given shape
         antlist is list of antenna numbers (1-based)
@@ -173,26 +183,25 @@ cdef class Reader(object):
         cdef unsigned int nspw = len(bbsplist)
         cdef unsigned int npol = len(pollist)
         cdef unsigned int nchantot = nspw*nchan
-
-        cdef unsigned int frac
+        cdef unsigned int nspec = ni*nbl*nspw*npol
+        cdef unsigned int specbreak = int(0.2*nspec)
         cdef unsigned int bind
         cdef int bind0
-        cdef bool printed = 0
 
         cdef list blarr = ['{0}-{1}'.format(antlist[ind0], antlist[ind1]) for ind1 in range(len(antlist)) for ind0 in range(ind1)]
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(inttime_micros/1e6)*(np.arange(ni)+0.5)
         cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(ni, nbl, nchantot, npol), dtype='complex64')
-        self.nspec = ni*nbl*nspw*npol
+        cdef unsigned int spec = 0
 
-        cdef long starttime = time.time()
-        cdef long currenttime = starttime
+        cdef long starttime = time(NULL)
+        self.currenttime = time(NULL)
 
-        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f}+{6} s)'.format(ni, nbl, self.nspec, self.t0, self.t1, self.t1-self.t0, self.timeout))
+        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(ni, nbl, nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 #        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
         if starttime < self.t1 + self.offset:
             # count until total number of spec is received or timeout elapses
-            while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec) and (currenttime - starttime < self.timeout + self.t1-self.t0 + self.offset):
+            while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
@@ -231,7 +240,7 @@ cdef class Reader(object):
                             spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
                             data[iind, bind0, ch0:ch0+nchan, pind0].real = spectrum[::2] # slow
                             data[iind, bind0, ch0:ch0+nchan, pind0].imag = spectrum[1::2] # slow
-                            self.spec = self.spec + 1
+                            spec += 1
                         else:
                             pass
 #                            print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
@@ -242,24 +251,22 @@ cdef class Reader(object):
                         print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
                         vysmaw_message_unref(msg)
 
-                currenttime = time.time()
-                frac = int(100.*self.spec/self.nspec)
-                if not (frac % 20) and frac > 0:
-                    if not printed:
-                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
-                        printed = 1
-                else:
-                    printed = 0
+                self.currenttime = time(NULL)
+
+                if (spec > 0) and not spec % specbreak:
+                    print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
 
                 PyErr_CheckSignals()
 
             # after while loop, check reason for ending
-            if currenttime-starttime >= self.timeout + self.t1-self.t0 + self.offset:
-                print('Reached timeout of {0}s. Exiting...'.format(self.timeout))
+            if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
+                print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
             elif msg is not NULL:
                 if msg[0].typ is VYSMAW_MESSAGE_END:
                     print('Received VYSMAW_MESSAGE_END. Exiting...')
                 
+            self.spec = spec
+            self.nspec = nspec
             print('{0}/{1} spectra received'.format(self.spec, self.nspec))
 
         else:
@@ -268,6 +275,9 @@ cdef class Reader(object):
         return data
 
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
     cpdef readn(self, nspec):
         """ Read data from consumers
         """
@@ -276,32 +286,34 @@ cdef class Reader(object):
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef np.ndarray[np.int_t, ndim=1, mode="c"] typecount = np.zeros(9, dtype=np.int)
-        cdef long starttime = time.time()
-        cdef long currenttime = starttime
+        cdef long starttime = time(NULL)
         cdef unsigned int frac
         cdef bool printed = 0
+        cdef unsigned int spec
 
+        self.currenttime = time(NULL)
         self.nspec = nspec
 
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (self.spec < self.nspec):
+        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < self.nspec):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
-                self.spec += 1
+                spec += 1
                 typecount[msg[0].typ] += 1
                 vysmaw_message_unref(msg)
             
             PyErr_CheckSignals()
 
-            currenttime = time.time()
-            frac = int(100.*self.spec/self.nspec)
+            self.currenttime = time(NULL)
+            frac = int(100.*spec/self.nspec)
             if not (frac % 25):
                 if not printed:
-                    print('At spec {0}: {1:1.0f} % of data in {2:1.1f}x realtime'.format(self.spec, 100*float(self.spec)/float(self.nspec), (currenttime-starttime)/(self.t1-self.t0)))
+                    print('At spec {0}: {1:1.0f} % of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
                     printed = 1
             else:
                 printed = 0
 
+        self.spec = spec
         print('{0}/{1} spectra received'.format(self.spec, self.nspec))
 
         return typecount
