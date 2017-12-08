@@ -1,11 +1,10 @@
-import time as pytime
 from libc.time cimport time_t
 cdef extern from "time.h" nogil:
     ctypedef int time_t
     time_t time(time_t*)
 
 cdef extern from "unistd.h" nogil:
-    void sleep(unsigned int slt)
+    void usleep(unsigned int slt)
 
 import cython
 from threading import Thread
@@ -138,8 +137,8 @@ cdef class Reader(object):
             self.config = cy_vysmaw.Configuration()
 
         specbytes = self.nchan*16  # complex128 per channel
-        self.config._c_configuration.max_spectrum_buffer_size = specbytes
-        self.config._c_configuration.spectrum_buffer_pool_size = self.nspec*specbytes
+        self.config.max_spectrum_buffer_size = specbytes*2  # TODO: fix this for proper overhead
+        self.config.spectrum_buffer_pool_size = self.nspec*specbytes
         print('Setting buffer size to {0} bytes and spectrum size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
 
     def __enter__(self):
@@ -151,7 +150,7 @@ cdef class Reader(object):
         if self.currenttime < self.t0 - self.offset:
             print('Holding for time {0} (less offset {1})'.format(self.t0, self.offset))
             while self.currenttime < self.t0 - self.offset:
-                sleep(1)
+                usleep(100000)
                 self.currenttime = time(NULL)
 
         self.open()
@@ -214,15 +213,18 @@ cdef class Reader(object):
         cdef long starttime = time(NULL)
         self.currenttime = time(NULL)
 
+        cdef vysmaw_message_type lastmsgtyp
+
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 #        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
         if starttime < self.t1 + self.offset:
             # count until total number of spec is received or timeout elapses
-            while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+            while ((msg is NULL) or (lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
+                    lastmsgtyp = msg[0].typ
                     if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                         py_msg = Message.wrap(msg)
 
@@ -269,10 +271,10 @@ cdef class Reader(object):
                         print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
                         vysmaw_message_unref(msg)
 
-                self.currenttime = time(NULL)
+                    if (spec > 0) and not spec % specbreak:
+                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
 
-                if (spec > 0) and not spec % specbreak:
-                    print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
+                self.currenttime = time(NULL)
 
                 PyErr_CheckSignals()
 
