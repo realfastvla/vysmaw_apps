@@ -136,8 +136,8 @@ cdef class Reader(object):
             print('Using default vys configuration file')
             self.config = cy_vysmaw.Configuration()
 
-        specbytes = self.nchan*16  # complex128 per channel
-        self.config.max_spectrum_buffer_size = specbytes*2  # TODO: fix this for proper overhead
+        specbytes = vys_spectrum_max_buffer_size(self.nchan, 1)
+        self.config.max_spectrum_buffer_size = specbytes
         self.config.spectrum_buffer_pool_size = self.nspec*specbytes
         print('Setting buffer size to {0} bytes and spectrum size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
 
@@ -165,7 +165,7 @@ cdef class Reader(object):
 
         # define filter inputs
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
-#        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.concatenate((window, bbids))
+#        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.concatenate((window, selectpols))
 
         # set windows
         cdef void **u = <void **>malloc(sizeof(void *))
