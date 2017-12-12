@@ -98,6 +98,7 @@ cdef class Reader(object):
     cdef unsigned int nchantot
     cdef unsigned int spec   # counter of number of spectra received
     cdef unsigned int nspec  # number of spectra expected
+    cdef vysmaw_message_type lastmsgtyp
 
 #    cdef Consumer c0  # crashes when trying to refer to this object in open
 #    cdef vysmaw_message_queue queue0 # crashes when trying to refer to this object in read
@@ -125,7 +126,7 @@ cdef class Reader(object):
         self.nchantot = self.nspw*self.nchan
         self.nspec = self.ni*self.nbl*self.nspw*self.npol
         self.spec = 0
-
+        self.lastmsgtyp = VYSMAW_MESSAGE_VALID_BUFFER
         self.offset = 4  # (integer) seconds early to open handle
 
         # configure
@@ -136,7 +137,7 @@ cdef class Reader(object):
             print('Using default vys configuration file')
             self.config = cy_vysmaw.Configuration()
 
-        specbytes = vys_spectrum_max_buffer_size(self.nchan, 1)
+        specbytes = vys_max_spectrum_buffer_size(self.nchan, 1)
         self.config.max_spectrum_buffer_size = specbytes
         self.config.spectrum_buffer_pool_size = self.nspec*specbytes
         print('Setting buffer size to {0} bytes and spectrum size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
@@ -152,6 +153,7 @@ cdef class Reader(object):
             while self.currenttime < self.t0 - self.offset:
                 usleep(100000)
                 self.currenttime = time(NULL)
+                PyErr_CheckSignals()
 
         self.open()
         return self
@@ -213,22 +215,21 @@ cdef class Reader(object):
         cdef long starttime = time(NULL)
         self.currenttime = time(NULL)
 
-        cdef vysmaw_message_type lastmsgtyp
-
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 #        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
         if starttime < self.t1 + self.offset:
             # count until total number of spec is received or timeout elapses
-            while ((msg is NULL) or (lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+            while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
-                    lastmsgtyp = msg[0].typ
+                    self.lastmsgtyp = msg[0].typ
                     if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
                         py_msg = Message.wrap(msg)
 
-                        # get the goodies asap
+                        # get the goodies asap.
+                        # these take about 30 ms
                         msg_time = py_msg.info.timestamp/1e9
                         iind = np.argmin(np.abs(timearr-msg_time))
                         bbid = py_msg.info.baseband_id
@@ -253,6 +254,7 @@ cdef class Reader(object):
                                 break
 
                         # put data in numpy array, if an index exists
+                        # this takes about 20 ms
                         if bind0 > -1 and pind0 > -1:
 #                            print('For iind, bind0, ch0, nchan, pind0: {0}, {1}, {2}, {3}, {4}...'.format(iind, bind0, ch0, nchan, pind0))
 #                            print('\tspectrum pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.spectrum))
@@ -293,51 +295,6 @@ cdef class Reader(object):
 
         return data
 
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    @cython.cdivision(True)
-    cpdef readn(self, nspec):
-        """ Read data from consumers
-        """
-
-        cdef vysmaw_message *msg = NULL
-        cdef Consumer c0 = self.consumers[0]
-        cdef vysmaw_message_queue queue0 = c0.queue()
-        cdef np.ndarray[np.int_t, ndim=1, mode="c"] typecount = np.zeros(9, dtype=np.int)
-        cdef long starttime = time(NULL)
-        cdef unsigned int frac
-        cdef bool printed = 0
-        cdef unsigned int spec
-
-        self.currenttime = time(NULL)
-        self.nspec = nspec
-
-        while ((msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END)) and (spec < self.nspec):
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
-
-            if msg is not NULL:
-                spec += 1
-                typecount[msg[0].typ] += 1
-                vysmaw_message_unref(msg)
-            
-            PyErr_CheckSignals()
-
-            self.currenttime = time(NULL)
-            frac = int(100.*spec/self.nspec)
-            if not (frac % 25):
-                if not printed:
-                    print('At spec {0}: {1:1.0f} % of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
-                    printed = 1
-            else:
-                printed = 0
-
-        self.spec = spec
-        print('{0}/{1} spectra received'.format(self.spec, self.nspec))
-
-        return typecount
-
-
     cpdef close(self):
         """ Close the vysmaw handle and catch any remaining messages
         """
@@ -354,19 +311,18 @@ cdef class Reader(object):
 
         if self.spec < self.nspec:
             nulls = 0
-            while (msg is NULL) or (msg[0].typ is not VYSMAW_MESSAGE_END):
+            while (msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
                 msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
                 if msg is not NULL:
-                    msgcnt[msg[0].typ] += 1
-#                    print(msg[0].typ)
+                    self.lastmsgtyp = msg[0].typ
+                    vysmaw_message_unref(msg)
+                    msgcnt[self.lastmsgtyp] += 1
                 else:
                     nulls += 1
-#                    print("NULL")
 
                 PyErr_CheckSignals()
 
             print('Remaining messages in queue: {0}'.format(msgcnt))
             if nulls:
                 print('and {0} NULLs'.format(nulls))
-
