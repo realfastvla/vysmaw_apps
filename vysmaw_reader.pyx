@@ -153,7 +153,7 @@ cdef class Reader(object):
             while self.currenttime < self.t0 - self.offset:
                 usleep(100000)
                 self.currenttime = time(NULL)
-                PyErr_CheckSignals()
+#                PyErr_CheckSignals()
 
         self.open()
         return self
@@ -202,15 +202,21 @@ cdef class Reader(object):
         cdef vysmaw_message *msg = NULL
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
-
+        cdef vysmaw_data_info info
         cdef unsigned int specbreak = int(0.2*self.nspec)
         cdef unsigned int bind
+        cdef uint64_t msg_time
+        cdef uint8_t bbid
+        cdef uint8_t spid
+        cdef np.ndarray[float, ndim=1, mode="c"] spectrum
         cdef int bind0
 
         cdef list blarr = ['{0}-{1}'.format(self.antlist[ind0], self.antlist[ind1]) for ind1 in range(len(self.antlist)) for ind0 in range(ind1)]
         cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(self.inttime_micros/1e6)*(np.arange(self.ni)+0.5)
         cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype='complex64')
         cdef unsigned int spec = 0
+        cdef int i
+        cdef int ch0
 
         cdef long starttime = time(NULL)
         self.currenttime = time(NULL)
@@ -226,26 +232,30 @@ cdef class Reader(object):
                 if msg is not NULL:
                     self.lastmsgtyp = msg[0].typ
                     if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-                        py_msg = Message.wrap(msg)
+#                        py_msg = Message.wrap(msg)
+                        info = msg[0].content.valid_buffer.info
 
                         # get the goodies asap.
-                        # these take about 30 ms
-                        msg_time = py_msg.info.timestamp/1e9
+                        msg_time = info.timestamp/1000000000
                         iind = np.argmin(np.abs(timearr-msg_time))
-                        bbid = py_msg.info.baseband_id
-                        spid = py_msg.info.spectral_window_index
-                        ch0 = self.nchan*self.bbsplist.index('{0}-{1}'.format(bbid, spid))
+                        bbid = info.baseband_id
+                        spid = info.spectral_window_index
+#                        ch0 = self.nchan*self.bbsplist.index('{0}-{1}'.format(bbid, spid))
+                        for i in range(len(self.bbsplist)):
+                            if self.bbsplist[i] == '{0}-{1}'.format(bbid, spid):
+                                ch0 = self.nchan*i
+                                break
 
                         # find pol in pollist
                         pind0 = -1
 #                        print('polid {0}'.format(py_msg.info.polarization_product_id))
                         for pind in range(len(self.pollist)):
-                            if py_msg.info.polarization_product_id == self.pollist[pind]:
+                            if info.polarization_product_id == self.pollist[pind]:
                                 pind0 = pind
                                 break
 
                         # find bl i blarr
-                        blstr = '{0}-{1}'.format(py_msg.info.stations[0], py_msg.info.stations[1])
+                        blstr = '{0}-{1}'.format(info.stations[0], info.stations[1])
 #                        print('blstr: {0} {1}'.format(blstr, type(blstr)))
                         bind0 = -1
                         for bind in range(len(blarr)):
@@ -259,15 +269,18 @@ cdef class Reader(object):
 #                            print('For iind, bind0, ch0, nchan, pind0: {0}, {1}, {2}, {3}, {4}...'.format(iind, bind0, ch0, nchan, pind0))
 #                            print('\tspectrum pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.spectrum))
 #                            print('\tbuffer pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.buffer))
-                            spectrum = np.array(py_msg.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
+                            spectrum = np.asarray(<float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
                             data[iind, bind0, ch0:ch0+self.nchan, pind0].real = spectrum[::2] # slow
                             data[iind, bind0, ch0:ch0+self.nchan, pind0].imag = spectrum[1::2] # slow
+#                            for i in range(self.nspec):
+#                                data[iind, bind0, ch0+i, pind0].real = msg[0].content.valid_buffer.spectrum[2*i]
+#                                data[iind, bind0, ch0+i, pind0].imag = msg[0].content.valid_buffer.spectrum[2*i+1]
                             spec += 1
                         else:
                             pass
 #                            print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
 
-                        py_msg.unref()  # this may be optional
+#                        py_msg.unref()  # this may be optional
 
                     else:
                         print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
@@ -278,7 +291,7 @@ cdef class Reader(object):
 
                 self.currenttime = time(NULL)
 
-                PyErr_CheckSignals()
+#                PyErr_CheckSignals()
 
             # after while loop, check reason for ending
             if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
