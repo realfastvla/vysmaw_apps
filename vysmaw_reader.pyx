@@ -27,20 +27,11 @@ message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE
 	      "VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW", "VYSMAW_MESSAGE_END"]))
 
 
-#cdef class arguments:
-#    cdef float t0
-#    cdef float t1
-#
-#    def __cinit__(self, t0, t1):
-#        self.t0 = t0
-#        self.t1 = t1
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
-             uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
-             void *user_data, bool *pass_filter) nogil:
+                      uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+                      void *user_data, bool *pass_filter) nogil:
 
     cdef unsigned int i
 
@@ -100,14 +91,15 @@ cdef class Reader(object):
     cdef unsigned int nspec  # number of spectra expected
     cdef vysmaw_message_type lastmsgtyp
 
-#    cdef Consumer c0  # crashes when trying to refer to this object in open
-#    cdef vysmaw_message_queue queue0 # crashes when trying to refer to this object in read
-
-    def __cinit__(self, double t0 = 0, double t1 = 0, antlist = [], pollist = [], bbsplist = [], inttime_micros = 1e6, nchan = 32, str cfile = None, int timeout = 10):
+    def __cinit__(self, double t0 = 0, double t1 = 0, list antlist = [], list pollist = [], list bbsplist = [], double inttime_micros = 1e6, int nchan = 32, str cfile = None, int timeout = 10):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
             timeout is wait time factor that scales time as timeout*(t1-t0).
+            antlist is list of antenna numbers (1-based)
+            bbsplist is list of "bbid-spwid" and where to place them.
+            nchan is number of channels per subband, assumed equal for all subbands received.
+            pollist is list polarization indexes and where to place them.
         """
 
         self.t0 = t0
@@ -143,8 +135,6 @@ cdef class Reader(object):
         print('Setting buffer size to {0} bytes and spectrum size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
 
     def __enter__(self):
-        """ Context management in Python.
-        """
 
         self.currenttime = time(NULL)
 
@@ -153,7 +143,7 @@ cdef class Reader(object):
             while self.currenttime < self.t0 - self.offset:
                 usleep(100000)
                 self.currenttime = time(NULL)
-#                PyErr_CheckSignals()
+                PyErr_CheckSignals()
 
         self.open()
         return self
@@ -193,10 +183,6 @@ cdef class Reader(object):
     @cython.cdivision(True)
     cpdef readwindow(self):
         """ Read in the time window and place in numpy array of given shape
-        antlist is list of antenna numbers (1-based)
-        bbsplist is list of "bbid-spwid" and where to place them.
-        nchan is number of channels per subband, assumed equal for all subbands received.
-        pollist is list polarization indexes and where to place them.
         """
 
         cdef vysmaw_message *msg = NULL
@@ -222,7 +208,6 @@ cdef class Reader(object):
         self.currenttime = time(NULL)
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
-#        print('blarr: {0}. pollist {1}'.format(blarr, pollist))
 
         if starttime < self.t1 + self.offset:
             # count until total number of spec is received or timeout elapses
@@ -232,7 +217,6 @@ cdef class Reader(object):
                 if msg is not NULL:
                     self.lastmsgtyp = msg[0].typ
                     if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-#                        py_msg = Message.wrap(msg)
                         info = msg[0].content.valid_buffer.info
 
                         # get the goodies asap.
@@ -248,7 +232,6 @@ cdef class Reader(object):
 
                         # find pol in pollist
                         pind0 = -1
-#                        print('polid {0}'.format(py_msg.info.polarization_product_id))
                         for pind in range(len(self.pollist)):
                             if info.polarization_product_id == self.pollist[pind]:
                                 pind0 = pind
@@ -264,11 +247,7 @@ cdef class Reader(object):
                                 break
 
                         # put data in numpy array, if an index exists
-                        # this takes about 20 ms
                         if bind0 > -1 and pind0 > -1:
-#                            print('For iind, bind0, ch0, nchan, pind0: {0}, {1}, {2}, {3}, {4}...'.format(iind, bind0, ch0, nchan, pind0))
-#                            print('\tspectrum pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.spectrum))
-#                            print('\tbuffer pointer: {0:x}'.format(<uintptr_t>&py_msg._c_message[0].content.valid_buffer.buffer))
                             spectrum = np.asarray(<float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
                             data[iind, bind0, ch0:ch0+self.nchan, pind0].real = spectrum[::2] # slow
                             data[iind, bind0, ch0:ch0+self.nchan, pind0].imag = spectrum[1::2] # slow
@@ -280,18 +259,17 @@ cdef class Reader(object):
                             pass
 #                            print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
 
-#                        py_msg.unref()  # this may be optional
+                        if (spec > 0) and not spec % specbreak:
+                            print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
 
                     else:
                         print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
                         vysmaw_message_unref(msg)
 
-                    if (spec > 0) and not spec % specbreak:
-                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
 
                 self.currenttime = time(NULL)
 
-#                PyErr_CheckSignals()
+                PyErr_CheckSignals()
 
             # after while loop, check reason for ending
             if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
@@ -299,7 +277,7 @@ cdef class Reader(object):
             elif msg is not NULL:
                 if msg[0].typ is VYSMAW_MESSAGE_END:
                     print('Received VYSMAW_MESSAGE_END. Exiting...')
-                
+
             self.spec = spec
             print('{0}/{1} spectra received'.format(self.spec, self.nspec))
 
