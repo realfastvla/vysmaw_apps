@@ -16,6 +16,7 @@ from libc.stdint cimport *
 from libc.stdlib cimport *
 from cy_vysmaw cimport *
 import cy_vysmaw
+from cython.view cimport array as cvarray
 
 message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
 	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
@@ -194,20 +195,31 @@ cdef class Reader(object):
         cdef uint64_t msg_time
         cdef uint8_t bbid
         cdef uint8_t spid
-        cdef np.ndarray[float, ndim=1, mode="c"] spectrum
+        cdef cvarray spectrum
         cdef int bind0
-
-        cdef list blarr = ['{0}-{1}'.format(self.antlist[ind0], self.antlist[ind1]) for ind1 in range(len(self.antlist)) for ind0 in range(ind1)]
-        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(self.inttime_micros/1e6)*(np.arange(self.ni)+0.5)
-        cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype='complex64')
-        cdef unsigned int spec = 0
+        cdef int pind0
+        cdef int iind
         cdef int i
         cdef int ch0
+
+        cdef list blarr = ['{0}-{1}'.format(self.antlist[ind0], self.antlist[ind1]) for ind1 in range(self.nant) for ind0 in range(ind1)]
+        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(self.inttime_micros/1e6)*(np.arange(self.ni)+0.5)
+        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] dtimearr = np.zeros_like(timearr)
+#        cyarr = cvarray(shape=self.ni, itemsize=sizeof(uint64_t))
+#        cdef uint64_t[::1] timearr = cyarr
+#        cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype='complex64')
+        cyarr = cvarray(shape=(self.ni, self.nbl, self.nchantot, self.npol), itemsize=sizeof(np.copmlex64_t), format="i")
+        cdef np.complex64_t[:,:,:,::1] data = cyarr
+        cdef unsigned int spec = 0
 
         cdef long starttime = time(NULL)
         self.currenttime = time(NULL)
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
+
+        for i in range(self.ni):
+            t0 = <uint64_t> self.t0
+            timearr[i] = t0+(self.inttime_micros/1e6)*(i+0.5)
 
         if starttime < self.t1 + self.offset:
             # count until total number of spec is received or timeout elapses
@@ -220,19 +232,23 @@ cdef class Reader(object):
                         info = msg[0].content.valid_buffer.info
 
                         # get the goodies asap.
+                        # first, find best time bin
                         msg_time = info.timestamp/1000000000
-                        iind = np.argmin(np.abs(timearr-msg_time))
+                        for iind in range(self.ni):
+                            dtimearr[iind] = np.abs(timearr[iind]-msg_time)
+                        iind0 = minind(dtimearr, self.ni)
+
                         bbid = info.baseband_id
                         spid = info.spectral_window_index
 #                        ch0 = self.nchan*self.bbsplist.index('{0}-{1}'.format(bbid, spid))
-                        for i in range(len(self.bbsplist)):
+                        for i in range(self.nspw):
                             if self.bbsplist[i] == '{0}-{1}'.format(bbid, spid):
                                 ch0 = self.nchan*i
                                 break
 
                         # find pol in pollist
                         pind0 = -1
-                        for pind in range(len(self.pollist)):
+                        for pind in range(self.npol):
                             if info.polarization_product_id == self.pollist[pind]:
                                 pind0 = pind
                                 break
@@ -241,14 +257,15 @@ cdef class Reader(object):
                         blstr = '{0}-{1}'.format(info.stations[0], info.stations[1])
 #                        print('blstr: {0} {1}'.format(blstr, type(blstr)))
                         bind0 = -1
-                        for bind in range(len(blarr)):
+                        for bind in range(self.nbl):
                             if blstr == blarr[bind]:
                                 bind0 = bind
                                 break
 
                         # put data in numpy array, if an index exists
                         if bind0 > -1 and pind0 > -1:
-                            spectrum = np.asarray(<float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum)  # copy=True is slow. could avoid copy and get pointer (?)
+#                            spectrum = np.asarray(<float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum)
+                            spectrum = <float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
                             data[iind, bind0, ch0:ch0+self.nchan, pind0].real = spectrum[::2] # slow
                             data[iind, bind0, ch0:ch0+self.nchan, pind0].imag = spectrum[1::2] # slow
 #                            for i in range(self.nspec):
@@ -317,3 +334,15 @@ cdef class Reader(object):
             print('Remaining messages in queue: {0}'.format(msgcnt))
             if nulls:
                 print('and {0} NULLs'.format(nulls))
+
+cdef double minind(np.float64_t[:] arr, size_t length):
+    cdef size_t i
+    cdef size_t mini
+    cdef np.float64_t minimum = arr[0]
+
+    for i in range(length):
+        if (minimum > arr[i]):
+            minimum = arr[i]
+            mini = i
+
+    return mini

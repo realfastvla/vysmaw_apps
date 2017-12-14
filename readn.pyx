@@ -47,6 +47,8 @@ cpdef run(n_stop, cfile=None):
         print('Using default vys configuration file')
         config = cy_vysmaw.Configuration()
 
+    print('Watching port {0} for {1} messges'.format(config.signal_multicast_address, n_stop))
+    print('')
     specbytes = vys_max_spectrum_buffer_size(1024, 1)
     config.max_spectrum_buffer_size = specbytes
     config.spectrum_buffer_pool_size = n_stop*specbytes
