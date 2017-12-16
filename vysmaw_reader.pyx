@@ -1,4 +1,15 @@
+import cython
+import cy_vysmaw
+import numpy as np
+from vysmaw cimport *
+from libc.stdint cimport *
+from libc.stdlib cimport *
+from cy_vysmaw cimport *
+from cython.view cimport array as cvarray
 from libc.time cimport time_t
+from cpython cimport PyErr_CheckSignals
+cimport numpy as cnp
+
 cdef extern from "time.h" nogil:
     ctypedef int time_t
     time_t time(time_t*)
@@ -6,17 +17,12 @@ cdef extern from "time.h" nogil:
 cdef extern from "unistd.h" nogil:
     void usleep(unsigned int slt)
 
-import cython
-from threading import Thread
-from cpython cimport PyErr_CheckSignals
-import numpy as np
-cimport numpy as np
-from vysmaw cimport *
-from libc.stdint cimport *
-from libc.stdlib cimport *
-from cy_vysmaw cimport *
-import cy_vysmaw
-from cython.view cimport array as cvarray
+cdef extern from "math.h" nogil:
+    int round(double arg)
+
+cdef extern from "math.h" nogil:
+    double fabs(double arg)
+
 
 message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
 	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
@@ -30,32 +36,18 @@ message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
-                      uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
-                      void *user_data, bool *pass_filter) nogil:
-
-    cdef unsigned int i
-
-    for i in range(num_infos):
-        pass_filter[i] = True
-
-    return
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
 
-    cdef np.float64_t *select = <np.float64_t *>user_data
+    cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
 
-    cdef np.float64_t t0 = select[0]
-    cdef np.float64_t t1 = select[1]
+    cdef double t0 = select[0]
+    cdef double t1 = select[1]
 
     for i in range(num_infos):
-        ts = infos[i].timestamp/1e9
+        ts = infos[i].timestamp/1000000000
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
@@ -77,11 +69,11 @@ cdef class Reader(object):
     cdef list consumers
     cdef Handle handle
     cdef long currenttime
-    cdef unsigned int nchan
-    cdef double inttime_micros
-    cdef list antlist
-    cdef list pollist
-    cdef list bbsplist
+    cdef int nchan
+    cdef long inttime_micros
+    cdef int[::1] antlist
+    cdef int[::1] pollist
+    cdef int[:, ::1] bbsplist
     cdef unsigned int ni
     cdef unsigned int nant
     cdef unsigned int nbl
@@ -92,17 +84,22 @@ cdef class Reader(object):
     cdef unsigned int nspec  # number of spectra expected
     cdef vysmaw_message_type lastmsgtyp
 
-    def __cinit__(self, double t0 = 0, double t1 = 0, list antlist = [], list pollist = [], list bbsplist = [], double inttime_micros = 1e6, int nchan = 32, str cfile = None, int timeout = 10):
+    def __cinit__(self, double t0, double t1, int[::1] antlist,
+                  int[::1] pollist, int[:,::1] bbsplist,
+                  long inttime_micros = 1000000, int nchan = 32,
+                  str cfile = None, int timeout = 10, int offset = 4):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
             timeout is wait time factor that scales time as timeout*(t1-t0).
+            offset is time offset to expect vys data from t0 and t1.
             antlist is list of antenna numbers (1-based)
             bbsplist is list of "bbid-spwid" and where to place them.
             nchan is number of channels per subband, assumed equal for all subbands received.
             pollist is list polarization indexes and where to place them.
         """
 
+        # set parameters
         self.t0 = t0
         self.t1 = t1
         self.timeout = timeout
@@ -111,16 +108,20 @@ cdef class Reader(object):
         self.nchan = nchan
         self.pollist = pollist
         self.inttime_micros = inttime_micros
-        self.ni = int(round((self.t1-self.t0)/(inttime_micros/1e6)))  # t1, t0 in seconds, i in microsec
+        self.offset = offset  # (integer) seconds early to open handle
+
+        # set reference values
+        self.ni = round(1000000*(self.t1-self.t0)/self.inttime_micros)
         self.nant = len(self.antlist)
         self.nbl = self.nant*(self.nant-1)/2  # cross hands only
         self.nspw = len(self.bbsplist)
         self.npol = len(self.pollist)
         self.nchantot = self.nspw*self.nchan
         self.nspec = self.ni*self.nbl*self.nspw*self.npol
+
+        # initialize
         self.spec = 0
         self.lastmsgtyp = VYSMAW_MESSAGE_VALID_BUFFER
-        self.offset = 4  # (integer) seconds early to open handle
 
         # configure
         if cfile:
@@ -130,15 +131,16 @@ cdef class Reader(object):
             print('Using default vys configuration file')
             self.config = cy_vysmaw.Configuration()
 
+        # modify configuration
         specbytes = vys_max_spectrum_buffer_size(self.nchan, 1)
         self.config.max_spectrum_buffer_size = specbytes
         self.config.spectrum_buffer_pool_size = self.nspec*specbytes
         print('Setting buffer size to {0} bytes and spectrum size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
 
     def __enter__(self):
-
         self.currenttime = time(NULL)
 
+        # wait for window before opening consumer
         if self.currenttime < self.t0 - self.offset:
             print('Holding for time {0} (less offset {1})'.format(self.t0, self.offset))
             while self.currenttime < self.t0 - self.offset:
@@ -157,24 +159,19 @@ cdef class Reader(object):
         """
 
         # define filter inputs
-        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
+        cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
 #        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.concatenate((window, selectpols))
 
         # set windows
         cdef void **u = <void **>malloc(sizeof(void *))
         u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
-#        u[0] = arguments(self.t0, self.t1)
 
         # set filters
         cdef vysmaw_spectrum_filter *f = \
             <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
 
-        if self.t0 and self.t1:
-            f[0] = filter_time
-            self.handle, self.consumers = self.config.start(1, f, u)
-        else:
-            f[0] = filter_none
-            self.handle, self.consumers = self.config.start(1, f, NULL)
+        f[0] = filter_time
+        self.handle, self.consumers = self.config.start(1, f, u)
 
         free(f)
         free(u)
@@ -186,40 +183,41 @@ cdef class Reader(object):
         """ Read in the time window and place in numpy array of given shape
         """
 
-        cdef vysmaw_message *msg = NULL
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef vysmaw_data_info info
-        cdef unsigned int specbreak = int(0.2*self.nspec)
-        cdef unsigned int bind
         cdef uint64_t msg_time
-        cdef uint8_t bbid
-        cdef uint8_t spid
-        cdef cvarray spectrum
-        cdef int bind0
-        cdef int pind0
+        cdef unsigned int specbreak = int(0.2*self.nspec)
+        cdef int bind0 = -1
+        cdef int pind0 = -1
         cdef int iind
-        cdef int i
+        cdef int iind0
         cdef int ch0
+        cdef int i = 0
+        cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
+        cdef double[::1] timearr = np.zeros(shape=(self.ni,))
+        cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
+#        cdef float[::1] spectrum = np.zeros(shape=(self.nchan,))
+        cdef cnp.float32_t[:,:,:,::1] datar = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
+        cdef cnp.float32_t[:,:,:,::1] datai = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
 
-        cdef list blarr = ['{0}-{1}'.format(self.antlist[ind0], self.antlist[ind1]) for ind1 in range(self.nant) for ind0 in range(ind1)]
-        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] timearr = self.t0+(self.inttime_micros/1e6)*(np.arange(self.ni)+0.5)
-        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] dtimearr = np.zeros_like(timearr)
-#        cyarr = cvarray(shape=self.ni, itemsize=sizeof(uint64_t))
-#        cdef uint64_t[::1] timearr = cyarr
-#        cdef np.ndarray[np.complex64_t, ndim=4, mode="c"] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype='complex64')
-        cyarr = cvarray(shape=(self.ni, self.nbl, self.nchantot, self.npol), itemsize=sizeof(np.copmlex64_t), format="i")
-        cdef np.complex64_t[:,:,:,::1] data = cyarr
+        # initialize
         cdef unsigned int spec = 0
-
+        cdef vysmaw_message *msg = NULL
         cdef long starttime = time(NULL)
         self.currenttime = time(NULL)
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 
-        for i in range(self.ni):
-            t0 = <uint64_t> self.t0
-            timearr[i] = t0+(self.inttime_micros/1e6)*(i+0.5)
+        # fill arrays
+        for iind in range(self.ni):
+            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5)
+
+        for ind1 in range(self.nant):
+            for ind0 in range(ind1):
+                blarr[i, 0] = self.antlist[ind0]
+                blarr[i, 1] = self.antlist[ind1]
+                i += 1
 
         if starttime < self.t1 + self.offset:
             # count until total number of spec is received or timeout elapses
@@ -235,42 +233,26 @@ cdef class Reader(object):
                         # first, find best time bin
                         msg_time = info.timestamp/1000000000
                         for iind in range(self.ni):
-                            dtimearr[iind] = np.abs(timearr[iind]-msg_time)
-                        iind0 = minind(dtimearr, self.ni)
+                            dtimearr[iind] = fabs(timearr[iind]-msg_time)
+                        iind0 = minind(dtimearr)
 
-                        bbid = info.baseband_id
-                        spid = info.spectral_window_index
-#                        ch0 = self.nchan*self.bbsplist.index('{0}-{1}'.format(bbid, spid))
-                        for i in range(self.nspw):
-                            if self.bbsplist[i] == '{0}-{1}'.format(bbid, spid):
-                                ch0 = self.nchan*i
-                                break
+                        # find starting channel for spectrum
+                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan)
 
                         # find pol in pollist
-                        pind0 = -1
-                        for pind in range(self.npol):
-                            if info.polarization_product_id == self.pollist[pind]:
-                                pind0 = pind
-                                break
+                        pind0 = findpolind(info.polarization_product_id, self.pollist)
 
                         # find bl i blarr
-                        blstr = '{0}-{1}'.format(info.stations[0], info.stations[1])
-#                        print('blstr: {0} {1}'.format(blstr, type(blstr)))
-                        bind0 = -1
-                        for bind in range(self.nbl):
-                            if blstr == blarr[bind]:
-                                bind0 = bind
-                                break
+                        bind0 = findblind(info.stations[0], info.stations[1], blarr)
 
                         # put data in numpy array, if an index exists
                         if bind0 > -1 and pind0 > -1:
-#                            spectrum = np.asarray(<float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum)
-                            spectrum = <float[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
-                            data[iind, bind0, ch0:ch0+self.nchan, pind0].real = spectrum[::2] # slow
-                            data[iind, bind0, ch0:ch0+self.nchan, pind0].imag = spectrum[1::2] # slow
-#                            for i in range(self.nspec):
-#                                data[iind, bind0, ch0+i, pind0].real = msg[0].content.valid_buffer.spectrum[2*i]
-#                                data[iind, bind0, ch0+i, pind0].imag = msg[0].content.valid_buffer.spectrum[2*i+1]
+                            spectrum = <cnp.float32_t[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
+#                            datar[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[::2] # slow
+#                            datai[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[1::2] # slow
+                            for i in range(self.nchan):
+                                datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
+                                datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
                             spec += 1
                         else:
                             pass
@@ -300,6 +282,10 @@ cdef class Reader(object):
 
         else:
             print('Start time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(starttime, self.t1, self.offset))
+
+        data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
+        data.real = np.asarray(datar)
+        data.imag = np.asarray(datai)
 
         return data
 
@@ -335,14 +321,51 @@ cdef class Reader(object):
             if nulls:
                 print('and {0} NULLs'.format(nulls))
 
-cdef double minind(np.float64_t[:] arr, size_t length):
-    cdef size_t i
-    cdef size_t mini
-    cdef np.float64_t minimum = arr[0]
+cdef int minind(double[:] arr):
+    cdef int i
+    cdef int mini
+    cdef double minimum = arr[0]
 
-    for i in range(length):
+    for i in range(1, len(arr)):
         if (minimum > arr[i]):
             minimum = arr[i]
             mini = i
 
     return mini
+
+cdef int findpolind(int pol, int[::1] polinds):
+    cdef int ind
+    cdef int ind1 = -1
+
+    for ind in range(len(polinds)):
+        if pol == polinds[ind]:
+            ind1 = ind
+            break
+
+    return ind1
+
+cdef int findblind(int st0, int st1, int[:, ::1] blarr):
+    cdef int bind0 = -1
+    cdef int bind
+    cdef int bl0
+    cdef int bl1
+
+    for bind in range(len(blarr)):
+        bl0 = blarr[bind, 0]
+        bl1 = blarr[bind, 1]
+        if (st0 == bl0) and (st1 == bl1):
+            bind0 = bind
+            break
+
+    return bind0
+
+cdef int findch0(int bbid, int spid, int[:,::1] bbsplist, int nchan):
+    cdef int i
+    cdef int ch0
+
+    for i in range(len(bbsplist)):
+        if (bbsplist[i, 0] == bbid) and (bbsplist[i, 1] == spid):
+            ch0 = nchan*i
+            break
+
+    return ch0
