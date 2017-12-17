@@ -197,7 +197,7 @@ cdef class Reader(object):
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
         cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
-#        cdef float[::1] spectrum = np.zeros(shape=(self.nchan,))
+        cdef cnp.float32_t[::1] spectrum = np.zeros(shape=(2*self.nchan,), dtype=np.float32)
         cdef cnp.float32_t[:,:,:,::1] datar = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
         cdef cnp.float32_t[:,:,:,::1] datai = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
 
