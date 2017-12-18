@@ -43,11 +43,15 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
 
-    cdef double t0 = select[0]
-    cdef double t1 = select[1]
+#    cdef cnp.float64_t t0 = select[0]
+#    cdef cnp.float64_t t1 = select[1]
+    cdef long t0
+    cdef long t1
+    t0 = <long> select[0]*1000
+    t1 = <long> select[1]*1000
 
     for i in range(num_infos):
-        ts = infos[i].timestamp/1000000000
+        ts = infos[i].timestamp/1000000  # in ms
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
@@ -61,8 +65,8 @@ cdef class Reader(object):
     """ Object to manage open, read, close for vysmaw application
     """
 
-    cdef double t0
-    cdef double t1
+    cdef cnp.float64_t t0
+    cdef cnp.float64_t t1
     cdef int timeout
     cdef Configuration config
     cdef int offset
@@ -84,7 +88,7 @@ cdef class Reader(object):
     cdef unsigned int nspec  # number of spectra expected
     cdef vysmaw_message_type lastmsgtyp
 
-    def __cinit__(self, double t0, double t1, int[::1] antlist,
+    def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
                   int[::1] pollist, int[:,::1] bbsplist,
                   long inttime_micros = 1000000, int nchan = 32,
                   str cfile = None, int timeout = 10, int offset = 4):
@@ -263,8 +267,8 @@ cdef class Reader(object):
 
                     else:
                         print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
-                        vysmaw_message_unref(msg)
 
+                    vysmaw_message_unref(msg)
 
                 self.currenttime = time(NULL)
 
