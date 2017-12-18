@@ -234,16 +234,16 @@ cdef class Reader(object):
                         msg_time = info.timestamp/1000000000
                         for iind in range(self.ni):
                             dtimearr[iind] = fabs(timearr[iind]-msg_time)
-                        iind0 = minind(dtimearr)
+                        iind0 = minind(dtimearr, self.ni)
 
                         # find starting channel for spectrum
-                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan)
+                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
                         # find pol in pollist
-                        pind0 = findpolind(info.polarization_product_id, self.pollist)
+                        pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
                         # find bl i blarr
-                        bind0 = findblind(info.stations[0], info.stations[1], blarr)
+                        bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
                         # put data in numpy array, if an index exists
                         if bind0 > -1 and pind0 > -1:
@@ -321,36 +321,42 @@ cdef class Reader(object):
             if nulls:
                 print('and {0} NULLs'.format(nulls))
 
-cdef int minind(double[:] arr):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int minind(double[:] arr, int ni) nogil:
     cdef int i
     cdef int mini
     cdef double minimum = arr[0]
 
-    for i in range(1, len(arr)):
+    for i in range(1, ni):
         if (minimum > arr[i]):
             minimum = arr[i]
             mini = i
 
     return mini
 
-cdef int findpolind(int pol, int[::1] polinds):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int findpolind(int pol, int[::1] polinds, int npol) nogil:
     cdef int ind
     cdef int ind1 = -1
 
-    for ind in range(len(polinds)):
+    for ind in range(npol):
         if pol == polinds[ind]:
             ind1 = ind
             break
 
     return ind1
 
-cdef int findblind(int st0, int st1, int[:, ::1] blarr):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
     cdef int bind0 = -1
     cdef int bind
     cdef int bl0
     cdef int bl1
 
-    for bind in range(len(blarr)):
+    for bind in range(nbl):
         bl0 = blarr[bind, 0]
         bl1 = blarr[bind, 1]
         if (st0 == bl0) and (st1 == bl1):
@@ -359,11 +365,13 @@ cdef int findblind(int st0, int st1, int[:, ::1] blarr):
 
     return bind0
 
-cdef int findch0(int bbid, int spid, int[:,::1] bbsplist, int nchan):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int findch0(int bbid, int spid, int[:,::1] bbsplist, int nchan, int nspw) nogil:
     cdef int i
     cdef int ch0
 
-    for i in range(len(bbsplist)):
+    for i in range(nspw):
         if (bbsplist[i, 0] == bbid) and (bbsplist[i, 1] == spid):
             ch0 = nchan*i
             break
