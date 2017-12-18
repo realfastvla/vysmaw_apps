@@ -43,15 +43,15 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
 
-#    cdef cnp.float64_t t0 = select[0]
-#    cdef cnp.float64_t t1 = select[1]
-    cdef long t0
-    cdef long t1
-    t0 = <long> select[0]*1000
-    t1 = <long> select[1]*1000
+    cdef cnp.float64_t t0 = select[0]
+    cdef cnp.float64_t t1 = select[1]
+#    cdef long t0
+#    cdef long t1
+#    t0 = <long> select[0]*1000
+#    t1 = <long> select[1]*1000
 
     for i in range(num_infos):
-        ts = infos[i].timestamp/1000000  # in ms
+        ts = infos[i].timestamp * 1./1000000000
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
@@ -190,7 +190,8 @@ cdef class Reader(object):
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef vysmaw_data_info info
-        cdef uint64_t msg_time
+#        cdef uint64_t msg_time
+        cdef double msg_time
         cdef unsigned int specbreak = int(0.2*self.nspec)
         cdef int bind0 = -1
         cdef int pind0 = -1
@@ -235,7 +236,8 @@ cdef class Reader(object):
 
                         # get the goodies asap.
                         # first, find best time bin
-                        msg_time = info.timestamp/1000000000
+                        msg_time = info.timestamp * 1./1000000000
+
                         for iind in range(self.ni):
                             dtimearr[iind] = fabs(timearr[iind]-msg_time)
                         iind0 = minind(dtimearr, self.ni)
@@ -248,6 +250,9 @@ cdef class Reader(object):
 
                         # find bl i blarr
                         bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
+
+                        if bind0 == 0 and pind0 == 0 and ch0 == 0:
+                            print(iind0, msg_time-self.t0)
 
                         # put data in numpy array, if an index exists
                         if bind0 > -1 and pind0 > -1:
