@@ -251,8 +251,8 @@ cdef class Reader(object):
                         # find bl i blarr
                         bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
-                        if bind0 == 0 and pind0 == 0 and ch0 == 0:
-                            print(iind0, msg_time-self.t0)
+#                        if bind0 == 0 and pind0 == 0 and ch0 == 0:
+#                            print(iind0, msg_time-self.t0)
 
                         # put data in numpy array, if an index exists
                         if bind0 > -1 and pind0 > -1:
