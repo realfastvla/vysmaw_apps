@@ -312,23 +312,24 @@ cdef class Reader(object):
             print('Shutting vysmaw down...')
             self.handle.shutdown()
 
-        if self.spec < self.nspec:
-            nulls = 0
-            while (msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
-                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+#        if self.spec < self.nspec:
+        nulls = 0
+        while (nulls < 10) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
+            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-                if msg is not NULL:
-                    self.lastmsgtyp = msg[0].typ
-                    vysmaw_message_unref(msg)
-                    msgcnt[self.lastmsgtyp] += 1
-                else:
-                    nulls += 1
+            if msg is not NULL:
+                self.lastmsgtyp = msg[0].typ
+                vysmaw_message_unref(msg)
+                msgcnt[self.lastmsgtyp] += 1
+            else:
+                nulls += 1
 
-                PyErr_CheckSignals()
+            PyErr_CheckSignals()
 
-            print('Remaining messages in queue: {0}'.format(msgcnt))
-            if nulls:
-                print('and {0} NULLs'.format(nulls))
+        print('Remaining messages in queue: {0}'.format(msgcnt))
+        if nulls:
+            print('and {0} NULLs'.format(nulls))
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
