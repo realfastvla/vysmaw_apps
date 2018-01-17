@@ -139,10 +139,14 @@ cdef class Reader(object):
         specbytes = vys_max_spectrum_buffer_size(self.nchan, 1)
         self.config.max_spectrum_buffer_size = specbytes
         self.config.spectrum_buffer_pool_size = self.nspec*specbytes
-        print('Setting buffer size to {0} bytes and spectrum size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
+        print('Setting spectrum size to {0} bytes and buffer size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
 
     def __enter__(self):
         self.currenttime = time(NULL)
+
+        if self.currenttime > self.t1 + self.offset:
+            print('Start time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(starttime, self.t1, self.offset))
+            return None
 
         # wait for window before opening consumer
         if self.currenttime < self.t0 - self.offset:
