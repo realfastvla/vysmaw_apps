@@ -144,10 +144,6 @@ cdef class Reader(object):
     def __enter__(self):
         self.currenttime = time(NULL)
 
-        if self.currenttime > self.t1 + self.offset:
-            print('Start time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(starttime, self.t1, self.offset))
-            return None
-
         # wait for window before opening consumer
         if self.currenttime < self.t0 - self.offset:
             print('Holding for time {0} (less offset {1})'.format(self.t0, self.offset))
@@ -156,11 +152,18 @@ cdef class Reader(object):
                 self.currenttime = time(NULL)
                 PyErr_CheckSignals()
 
-        self.open()
+        # if too late, bail
+        if self.currenttime > self.t1 + self.offset:
+            print('Current time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(self.currenttime, self.t1, self.offset))
+            return None
+        else:
+            self.open()
+
         return self
 
     def __exit__(self, *args):
-        self.close()
+        if self.handle is not None:
+            self.close()
 
     cpdef open(self):
         """ Create the handle and consumers
@@ -228,73 +231,69 @@ cdef class Reader(object):
                 blarr[i, 1] = self.antlist[ind1]
                 i += 1
 
-        if starttime < self.t1 + self.offset:
-            # count until total number of spec is received or timeout elapses
-            while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
-                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+        # count until total number of spec is received or timeout elapses
+        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-                if msg is not NULL:
-                    self.lastmsgtyp = msg[0].typ
-                    if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-                        info = msg[0].content.valid_buffer.info
+            if msg is not NULL:
+                self.lastmsgtyp = msg[0].typ
+                if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
+                    info = msg[0].content.valid_buffer.info
 
-                        # get the goodies asap.
-                        # first, find best time bin
-                        msg_time = info.timestamp * 1./1000000000
+                    # get the goodies asap.
+                    # first, find best time bin
+                    msg_time = info.timestamp * 1./1000000000
 
-                        for iind in range(self.ni):
-                            dtimearr[iind] = fabs(timearr[iind]-msg_time)
-                        iind0 = minind(dtimearr, self.ni)
+                    for iind in range(self.ni):
+                        dtimearr[iind] = fabs(timearr[iind]-msg_time)
+                    iind0 = minind(dtimearr, self.ni)
 
-                        # find starting channel for spectrum
-                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
+                    # find starting channel for spectrum
+                    ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
-                        # find pol in pollist
-                        pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
+                    # find pol in pollist
+                    pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
-                        # find bl i blarr
-                        bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
+                    # find bl i blarr
+                    bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
-#                        if bind0 == 0 and pind0 == 0 and ch0 == 0:
-#                            print(iind0, msg_time-self.t0)
+#                    if bind0 == 0 and pind0 == 0 and ch0 == 0:
+#                        print(iind0, msg_time-self.t0)
 
-                        # put data in numpy array, if an index exists
-                        if bind0 > -1 and pind0 > -1:
-                            spectrum = <cnp.float32_t[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
-#                            datar[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[::2] # slow
-#                            datai[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[1::2] # slow
-                            for i in range(self.nchan):
-                                datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
-                                datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
-                            spec += 1
-                        else:
-                            pass
-#                            print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
-
-                        if (spec > 0) and not spec % specbreak:
-                            print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
-
+                    # put data in numpy array, if an index exists
+                    if bind0 > -1 and pind0 > -1:
+                        spectrum = <cnp.float32_t[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
+#                        datar[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[::2] # slow
+#                        datai[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[1::2] # slow
+                        for i in range(self.nchan):
+                            datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
+                            datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
+                        spec += 1
                     else:
-                        print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
+                        pass
+#                        print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
 
-                    vysmaw_message_unref(msg)
+                    if (spec > 0) and not spec % specbreak:
+                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
 
-                self.currenttime = time(NULL)
+                else:
+                    print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
 
-                PyErr_CheckSignals()
+                vysmaw_message_unref(msg)
 
-            # after while loop, check reason for ending
-            if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
-                print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
-            elif msg is not NULL:
-                if msg[0].typ is VYSMAW_MESSAGE_END:
-                    print('Received VYSMAW_MESSAGE_END. Exiting...')
+            self.currenttime = time(NULL)
 
-            self.spec = spec
-            print('{0}/{1} spectra received'.format(self.spec, self.nspec))
+            PyErr_CheckSignals()
 
-        else:
-            print('Start time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(starttime, self.t1, self.offset))
+        # after while loop, check reason for ending
+        if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
+            print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
+        elif msg is not NULL:
+            if msg[0].typ is VYSMAW_MESSAGE_END:
+                print('Received VYSMAW_MESSAGE_END. Exiting...')
+
+        self.spec = spec
+        print('{0}/{1} spectra received'.format(self.spec, self.nspec))
 
         data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
         data.real = np.asarray(datar)
