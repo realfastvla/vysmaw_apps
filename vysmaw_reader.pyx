@@ -74,7 +74,7 @@ cdef class Reader(object):
     cdef Handle handle
     cdef long currenttime
     cdef int nchan
-    cdef long inttime_micros
+    cdef float inttime_micros
     cdef int[::1] antlist
     cdef int[::1] pollist
     cdef int[:, ::1] bbsplist
@@ -84,13 +84,13 @@ cdef class Reader(object):
     cdef unsigned int nspw
     cdef unsigned int npol
     cdef unsigned int nchantot
-    cdef unsigned int spec   # counter of number of spectra received
+#    cdef unsigned int spec   # counter of number of spectra received
     cdef unsigned int nspec  # number of spectra expected
     cdef vysmaw_message_type lastmsgtyp
 
     def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
                   int[::1] pollist, int[:,::1] bbsplist,
-                  long inttime_micros = 1000000, int nchan = 32,
+                  float inttime_micros = 1000000, int nchan = 32,
                   str cfile = None, int timeout = 10, int offset = 4):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
@@ -124,7 +124,6 @@ cdef class Reader(object):
         self.nspec = self.ni*self.nbl*self.nspw*self.npol
 
         # initialize
-        self.spec = 0
         self.lastmsgtyp = VYSMAW_MESSAGE_VALID_BUFFER
 
         # configure
@@ -215,9 +214,12 @@ cdef class Reader(object):
 
         # initialize
         cdef unsigned int spec = 0
+        cdef unsigned int speclast = 0
+        cdef unsigned int lastints = min(self.ni, 5) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
         cdef long starttime = time(NULL)
         self.currenttime = time(NULL)
+
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 
@@ -231,8 +233,10 @@ cdef class Reader(object):
                 blarr[i, 1] = self.antlist[ind1]
                 i += 1
 
-        # count until total number of spec is received or timeout elapses
-        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+        # old way: count until total number of spec is received or timeout elapses
+#        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+        # new way: count spec only in last integration
+        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
@@ -246,6 +250,7 @@ cdef class Reader(object):
 
                     for iind in range(self.ni):
                         dtimearr[iind] = fabs(timearr[iind]-msg_time)
+
                     iind0 = minind(dtimearr, self.ni)
 
                     # find starting channel for spectrum
@@ -263,12 +268,14 @@ cdef class Reader(object):
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and pind0 > -1:
                         spectrum = <cnp.float32_t[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
-#                        datar[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[::2] # slow
-#                        datai[iind0, bind0, ch0:ch0+self.nchan, pind0] = spectrum[1::2] # slow
+
                         for i in range(self.nchan):
                             datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
                             datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
+
                         spec += 1
+                        if iind0 >= self.ni-lastints:
+                            speclast += 1
                     else:
                         pass
 #                        print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
@@ -288,12 +295,13 @@ cdef class Reader(object):
         # after while loop, check reason for ending
         if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
             print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
+        elif speclast == lastints*self.nspec/self.ni:
+            print('Read all spectra for last {0} integrations. Exiting...'.format(lastints))
         elif msg is not NULL:
             if msg[0].typ is VYSMAW_MESSAGE_END:
                 print('Received VYSMAW_MESSAGE_END. Exiting...')
 
-        self.spec = spec
-        print('{0}/{1} spectra received'.format(self.spec, self.nspec))
+        print('{0}/{1} spectra received'.format(spec, self.nspec))
 
         data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
         data.real = np.asarray(datar)
@@ -315,7 +323,6 @@ cdef class Reader(object):
             print('Shutting vysmaw down...')
             self.handle.shutdown()
 
-#        if self.spec < self.nspec:
         nulls = 0
         while (nulls < 10) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
@@ -338,11 +345,11 @@ cdef class Reader(object):
 @cython.wraparound(False)
 cdef int minind(double[:] arr, int ni) nogil:
     cdef int i
-    cdef int mini
-    cdef double minimum = arr[0]
+    cdef int mini = 0
+    cdef double minimum = arr[mini]
 
     for i in range(1, ni):
-        if (minimum > arr[i]):
+        if minimum > arr[i]:
             minimum = arr[i]
             mini = i
 
