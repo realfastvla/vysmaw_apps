@@ -242,6 +242,10 @@ cdef class Reader(object):
             if msg is not NULL:
                 self.lastmsgtyp = msg[0].typ
                 if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
+
+                    if not spec % specbreak:
+                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
+
                     info = msg[0].content.valid_buffer.info
 
                     # get the goodies asap.
@@ -279,9 +283,6 @@ cdef class Reader(object):
                     else:
                         pass
 #                        print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
-
-                    if (spec > 0) and not spec % specbreak:
-                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
 
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
