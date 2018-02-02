@@ -217,9 +217,6 @@ cdef class Reader(object):
         cdef unsigned int speclast = 0
         cdef unsigned int lastints = min(self.ni, 5) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
-        cdef long starttime = time(NULL)
-        self.currenttime = time(NULL)
-
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 
@@ -232,6 +229,9 @@ cdef class Reader(object):
                 blarr[i, 0] = self.antlist[ind0]
                 blarr[i, 1] = self.antlist[ind1]
                 i += 1
+
+        cdef long starttime = time(NULL)
+        self.currenttime = time(NULL)
 
         # old way: count until total number of spec is received or timeout elapses
 #        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
