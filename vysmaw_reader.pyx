@@ -67,7 +67,7 @@ cdef class Reader(object):
 
     cdef cnp.float64_t t0
     cdef cnp.float64_t t1
-    cdef int timeout
+    cdef cnp.float64_t timeout
     cdef Configuration config
     cdef int offset
     cdef list consumers
@@ -91,14 +91,14 @@ cdef class Reader(object):
     def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
                   int[::1] pollist, int[:,::1] bbsplist,
                   float inttime_micros = 1000000, int nchan = 32,
-                  str cfile = None, int timeout = 10, int offset = 4):
+                  str cfile = None, cnp.float64_t timeout = 10, int offset = 4):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
             timeout is wait time factor that scales time as timeout*(t1-t0).
             offset is time offset to expect vys data from t0 and t1.
             antlist is list of antenna numbers (1-based)
-            bbsplist is list of "bbid-spwid" and where to place them.
+            bbsplist is array of [bbid, spwid] and where to place them.
             nchan is number of channels per subband, assumed equal for all subbands received.
             pollist is list polarization indexes and where to place them.
         """
