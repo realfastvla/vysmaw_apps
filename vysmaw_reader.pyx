@@ -328,7 +328,7 @@ cdef class Reader(object):
             self.handle.shutdown()
 
         nulls = 0
-        while (nulls < 10) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
+        while (nulls < 20) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
