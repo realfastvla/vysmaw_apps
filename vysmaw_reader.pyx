@@ -304,9 +304,12 @@ cdef class Reader(object):
 
         print('{0}/{1} spectra received'.format(spec, self.nspec))
 
-        data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
-        data.real = np.asarray(datar)
-        data.imag = np.asarray(datai)
+        if spec > 0:
+            data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
+            data.real = np.asarray(datar)
+            data.imag = np.asarray(datai)
+        else:
+            data = None
 
         return data
 
