@@ -208,9 +208,10 @@ cdef class Reader(object):
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
         cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
-        cdef cnp.float32_t[::1] spectrum = np.zeros(shape=(2*self.nchan,), dtype=np.float32)
-        cdef cnp.float32_t[:,:,:,::1] datar = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
-        cdef cnp.float32_t[:,:,:,::1] datai = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
+        cdef cnp.complex64_t[::1] spectrum = np.zeros(shape=self.nchan, dtype=np.complex64)
+#        cdef cnp.float32_t[:,:,:,::1] datar = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
+#        cdef cnp.float32_t[:,:,:,::1] datai = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
+        cdef cnp.complex64_t[:,:,:,::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
         cdef unsigned int spec = 0
@@ -271,11 +272,12 @@ cdef class Reader(object):
 
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and pind0 > -1:
-                        spectrum = <cnp.float32_t[:2*self.nchan]> msg[0].content.valid_buffer.spectrum
+                        spectrum = <cnp.complex64_t[:self.nchan]> msg[0].content.valid_buffer.spectrum
 
                         for i in range(self.nchan):
-                            datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
-                            datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
+#                            datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
+#                            datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
+                            data[iind0, bind0, ch0+i, pind0] = spectrum[i]
 
                         spec += 1
                         if iind0 >= self.ni-lastints:
@@ -305,13 +307,12 @@ cdef class Reader(object):
         print('{0}/{1} spectra received'.format(spec, self.nspec))
 
         if spec > 0:
-            data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
-            data.real = np.asarray(datar)
-            data.imag = np.asarray(datai)
+#            data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
+#            data.real = np.asarray(datar)
+#            data.imag = np.asarray(datai)
+            return np.asarray(data)
         else:
-            data = None
-
-        return data
+            return None
 
     cpdef close(self):
         """ Close the vysmaw handle and catch any remaining messages
