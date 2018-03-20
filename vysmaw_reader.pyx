@@ -272,7 +272,7 @@ cdef class Reader(object):
 
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and pind0 > -1:
-                        spectrum = <cnp.complex64_t[:self.nchan]> msg[0].content.valid_buffer.spectrum
+                        spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
 
                         for i in range(self.nchan):
 #                            datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
