@@ -149,7 +149,7 @@ cdef class Reader(object):
             while self.currenttime < self.t0 - self.offset:
                 usleep(100000)
                 self.currenttime = time(NULL)
-                PyErr_CheckSignals()
+#                PyErr_CheckSignals()
 
         # if too late, bail
         if self.currenttime > self.t1 + self.offset:
@@ -196,7 +196,6 @@ cdef class Reader(object):
         cdef Consumer c0 = self.consumers[0]
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef vysmaw_data_info info
-#        cdef uint64_t msg_time
         cdef double msg_time
         cdef unsigned int specbreak = int(0.2*self.nspec)
         cdef int bind0 = -1
@@ -209,9 +208,7 @@ cdef class Reader(object):
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
         cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
         cdef cnp.complex64_t[::1] spectrum = np.zeros(shape=self.nchan, dtype=np.complex64)
-#        cdef cnp.float32_t[:,:,:,::1] datar = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
-#        cdef cnp.float32_t[:,:,:,::1] datai = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.float32)
-        cdef cnp.complex64_t[:,:,:,::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
+        cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
         cdef unsigned int spec = 0
@@ -275,8 +272,6 @@ cdef class Reader(object):
                         spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
 
                         for i in range(self.nchan):
-#                            datar[iind0, bind0, ch0+i, pind0] = spectrum[2*i]
-#                            datai[iind0, bind0, ch0+i, pind0] = spectrum[2*i+1]
                             data[iind0, bind0, ch0+i, pind0] = spectrum[i]
 
                         spec += 1
@@ -293,7 +288,7 @@ cdef class Reader(object):
 
             self.currenttime = time(NULL)
 
-            PyErr_CheckSignals()
+#            PyErr_CheckSignals()
 
         # after while loop, check reason for ending
         if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
@@ -307,9 +302,6 @@ cdef class Reader(object):
         print('{0}/{1} spectra received'.format(spec, self.nspec))
 
         if spec > 0:
-#            data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
-#            data.real = np.asarray(datar)
-#            data.imag = np.asarray(datai)
             return np.asarray(data)
         else:
             return None
@@ -339,7 +331,7 @@ cdef class Reader(object):
             else:
                 nulls += 1
 
-            PyErr_CheckSignals()
+#            PyErr_CheckSignals()
 
         print('Remaining messages in queue: {0}'.format(msgcnt))
         if nulls:
