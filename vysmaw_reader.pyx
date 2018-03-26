@@ -146,10 +146,11 @@ cdef class Reader(object):
         # wait for window before opening consumer
         if self.currenttime < self.t0 - self.offset:
             print('Holding for time {0} (less offset {1})'.format(self.t0, self.offset))
-            while self.currenttime < self.t0 - self.offset:
-                usleep(100000)
-                self.currenttime = time(NULL)
-#                PyErr_CheckSignals()
+            with nogil:
+                while self.currenttime < self.t0 - self.offset:
+                    usleep(100000)
+                    self.currenttime = time(NULL)
+#                    PyErr_CheckSignals()
 
         # if too late, bail
         if self.currenttime > self.t1 + self.offset:
@@ -269,6 +270,7 @@ cdef class Reader(object):
 
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and pind0 > -1:
+                        # this requires python GIL
                         spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
 
                         for i in range(self.nchan):
