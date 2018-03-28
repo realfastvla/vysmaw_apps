@@ -1,10 +1,10 @@
 import cython
-import cy_vysmaw
+from vysmaw import cy_vysmaw
 import numpy as np
 from vysmaw cimport *
 from libc.stdint cimport *
 from libc.stdlib cimport *
-from cy_vysmaw cimport *
+from vysmaw.cy_vysmaw cimport *
 from cython.view cimport array as cvarray
 from libc.time cimport time_t
 from cpython cimport PyErr_CheckSignals
