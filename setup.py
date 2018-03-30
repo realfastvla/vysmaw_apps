@@ -12,7 +12,8 @@ extensions = [
         libraries = ["vysmaw", "vys", "python3.6m"],
         include_dirs = ["/opt/cbe-local/include"],
 #        library_dirs = ["/home/cbe-master/wcbe/py/lib/python2.7/site-packages/vysmaw", "/opt/cbe-local/lib"],)]
-        library_dirs = ["/opt/cbe-local/lib/python3.6/site-packages/vysmaw", "/opt/cbe-local/lib"],)]
+        library_dirs = ["/opt/cbe-local/lib/python3.6/site-packages/vysmaw", "/opt/cbe-local/lib"],
+        extra_compile_args = ["-fno-strict-aliasing"])]
 
 setup(
   name = 'vysmaw applications',

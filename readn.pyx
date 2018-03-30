@@ -1,9 +1,8 @@
-from vysmaw cimport *
+from vysmaw import cy_vysmaw
+from vysmaw.cy_vysmaw cimport *
 from libc.stdint cimport *
 from libc.stdlib cimport *
-from cy_vysmaw cimport *
 from cpython cimport PyErr_CheckSignals
-import cy_vysmaw
 import signal
 import numpy as np
 cimport numpy as np

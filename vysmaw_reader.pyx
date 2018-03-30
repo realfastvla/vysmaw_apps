@@ -5,14 +5,15 @@ from vysmaw cimport *
 from libc.stdint cimport *
 from libc.stdlib cimport *
 from vysmaw.cy_vysmaw cimport *
-from cython.view cimport array as cvarray
 from libc.time cimport time_t
 from cpython cimport PyErr_CheckSignals
+from cython.view cimport array as cvarray
+
 cimport numpy as cnp
 
 cdef extern from "time.h" nogil:
-    ctypedef int time_t
-    time_t time(time_t*)
+    ctypedef int time_tt
+    time_tt time(time_t*)
 
 cdef extern from "unistd.h" nogil:
     void usleep(unsigned int slt)
@@ -84,8 +85,7 @@ cdef class Reader(object):
     cdef unsigned int nspw
     cdef unsigned int npol
     cdef unsigned int nchantot
-#    cdef unsigned int spec   # counter of number of spectra received
-    cdef unsigned int nspec  # number of spectra expected
+    cdef unsigned long nspec  # number of spectra expected
     cdef vysmaw_message_type lastmsgtyp
 
     def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
@@ -198,11 +198,11 @@ cdef class Reader(object):
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef vysmaw_data_info info
         cdef double msg_time
-        cdef unsigned int specbreak = int(0.2*self.nspec)
+        cdef unsigned long specbreak = int(0.2*self.nspec)
         cdef int bind0 = -1
         cdef int pind0 = -1
         cdef int iind
-        cdef int iind0
+        cdef unsigned int iind0
         cdef int ch0
         cdef int i = 0
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
@@ -212,9 +212,9 @@ cdef class Reader(object):
         cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
-        cdef unsigned int spec = 0
-        cdef unsigned int speclast = 0
-        cdef unsigned int lastints = min(self.ni, 7) # count speclast in last ints
+        cdef unsigned long spec = 0
+        cdef unsigned long speclast = 0
+        cdef unsigned int lastints = min(self.ni, 10) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
