@@ -1,12 +1,11 @@
-from vysmaw import cy_vysmaw
-from vysmaw.cy_vysmaw cimport *
+import cython
 from libc.stdint cimport *
 from libc.stdlib cimport *
 from cpython cimport PyErr_CheckSignals
-import signal
 import numpy as np
 cimport numpy as np
-import cython
+from vysmaw import cy_vysmaw
+from vysmaw.cy_vysmaw cimport *
 
 
 message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
@@ -35,7 +34,7 @@ cdef void filter(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uin
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef run(n_stop, cfile=None):
+cpdef run(n_stop, cfile=None, getmsg=False):
 
     # configure
     cdef Configuration config
@@ -72,11 +71,17 @@ cpdef run(n_stop, cfile=None):
         if msg is not NULL:
             num_spectra += 1
             typecount[msg[0].typ] += 1
-            vysmaw_message_unref(msg)
+            if getmsg:
+                py_msg = Message.wrap(msg)
+            else:
+                vysmaw_message_unref(msg)
 
         PyErr_CheckSignals()
 
     if handle is not None:
         handle.shutdown()
 
-    return dict(zip(message_types.values(), typecount))
+    if getmsg:
+        return py_msg
+    else:
+        return dict(zip(message_types.values(), typecount))

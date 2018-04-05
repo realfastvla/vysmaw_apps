@@ -1,14 +1,11 @@
 import cython
-from vysmaw import cy_vysmaw
-import numpy as np
-from vysmaw cimport *
 from libc.stdint cimport *
 from libc.stdlib cimport *
-from vysmaw.cy_vysmaw cimport *
 from libc.time cimport time_t
 from cpython cimport PyErr_CheckSignals
-from cython.view cimport array as cvarray
-
+from vysmaw import cy_vysmaw
+from vysmaw.cy_vysmaw cimport *
+import numpy as np
 cimport numpy as cnp
 
 cdef extern from "time.h" nogil:
@@ -44,19 +41,32 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
 
-    cdef cnp.float64_t t0 = select[0]
-    cdef cnp.float64_t t1 = select[1]
-#    cdef long t0
-#    cdef long t1
-#    t0 = <long> select[0]*1000
-#    t1 = <long> select[1]*1000
+#    cdef cnp.float64_t t0 = select[0]
+#    cdef cnp.float64_t t1 = select[1]
+    cdef long t0 = round(select[0] * 1000000000)
+    cdef long t1 = round(select[1] * 1000000000)
 
     for i in range(num_infos):
-        ts = infos[i].timestamp * 1./1000000000
+#        ts = infos[i].timestamp * 1./1000000000
+        ts = infos[i].timestamp
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
             pass_filter[i] = False
+
+    return
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
+             uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+             void *user_data, bool *pass_filter) nogil:
+
+    cdef unsigned int i
+
+    for i in range(num_infos):
+        pass_filter[i] = True
 
     return
 
@@ -187,6 +197,9 @@ cdef class Reader(object):
         free(f)
         free(u)
 
+#        print('started filter')
+#        usleep(10000000)
+
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -199,9 +212,9 @@ cdef class Reader(object):
         cdef vysmaw_data_info info
         cdef double msg_time
         cdef unsigned long specbreak = int(0.2*self.nspec)
-        cdef int bind0 = -1
-        cdef int pind0 = -1
-        cdef int iind
+        cdef int bind0
+        cdef int pind0
+        cdef unsigned int iind
         cdef unsigned int iind0
         cdef int ch0
         cdef int i = 0
@@ -266,27 +279,35 @@ cdef class Reader(object):
                     bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
 #                    if bind0 == 0 and pind0 == 0 and ch0 == 0:
-#                        print(iind0, msg_time-self.t0)
+#                        print(msg_time, self.t0, msg_time-self.t0, iind0, bind0, pind0, ch0)
 
                     # put data in numpy array, if an index exists
-                    if bind0 > -1 and pind0 > -1:
+                    if bind0 > -1 and ch0 > -1 and pind0 > -1:
                         # this requires python GIL
                         spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
 
+# TODO: check this 
+#                        if data[iind0, bind0, ch0, pind0] != 0j:
+#                            print('data value already set at {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+
                         for i in range(self.nchan):
                             data[iind0, bind0, ch0+i, pind0] = spectrum[i]
+# TODO: check this
+#                            data[0, 0, 0 ,0] = spectrum[i]
 
                         spec += 1
                         if iind0 >= self.ni-lastints:
                             speclast += 1
                     else:
-                        pass
-#                        print('No bind or pind found for {0} {1} {2}'.format(blstr, bind0, pind0))
+                        print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
 
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
 
                 vysmaw_message_unref(msg)
+            else:
+                pass
+#                print('NULL')
 
             self.currenttime = time(NULL)
 
@@ -388,7 +409,7 @@ cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
 @cython.wraparound(False)
 cdef int findch0(int bbid, int spid, int[:,::1] bbsplist, int nchan, int nspw) nogil:
     cdef int i
-    cdef int ch0
+    cdef int ch0 = -1
 
     for i in range(nspw):
         if (bbsplist[i, 0] == bbid) and (bbsplist[i, 1] == spid):
