@@ -41,14 +41,11 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
 
-#    cdef cnp.float64_t t0 = select[0]
-#    cdef cnp.float64_t t1 = select[1]
-    cdef long t0 = round(select[0] * 1000000000)
-    cdef long t1 = round(select[1] * 1000000000)
+    cdef cnp.float64_t t0 = select[0]
+    cdef cnp.float64_t t1 = select[1]
 
     for i in range(num_infos):
-#        ts = infos[i].timestamp * 1./1000000000
-        ts = infos[i].timestamp
+        ts = infos[i].timestamp * 1./1000000000
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
@@ -181,7 +178,6 @@ cdef class Reader(object):
 
         # define filter inputs
         cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
-#        cdef np.ndarray[np.float64_t, ndim=1, mode="c"] filterarr = np.concatenate((window, selectpols))
 
         # set windows
         cdef void **u = <void **>malloc(sizeof(void *))
@@ -221,7 +217,7 @@ cdef class Reader(object):
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
         cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
-        cdef cnp.complex64_t[::1] spectrum = np.zeros(shape=self.nchan, dtype=np.complex64)
+#        cdef cnp.complex64_t[::1] spectrum = np.zeros(shape=self.nchan, dtype=np.complex64)
         cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
@@ -283,23 +279,23 @@ cdef class Reader(object):
 
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and ch0 > -1 and pind0 > -1:
-                        # this requires python GIL
-                        spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
-
 # TODO: check this 
-#                        if data[iind0, bind0, ch0, pind0] != 0j:
-#                            print('data value already set at {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+                        if data[iind0, bind0, ch0, pind0] != 0j:
+                            print('data value already set at {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
 
+                        # this requires python GIL
+#                        spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
+#                        spectrum = <cnp.complex64_t[:self.nchan]> msg[0].content.valid_buffer.spectrum
                         for i in range(self.nchan):
-                            data[iind0, bind0, ch0+i, pind0] = spectrum[i]
-# TODO: check this
-#                            data[0, 0, 0 ,0] = spectrum[i]
+                            data[iind0, bind0, ch0+i, pind0] = msg[0].content.valid_buffer.spectrum[i]
 
                         spec += 1
                         if iind0 >= self.ni-lastints:
                             speclast += 1
                     else:
                         print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+                        if bind0 == -1:
+                            print('findblind input: {0} {1} {2}'.format(info.stations[0], info.stations[1]))
 
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
