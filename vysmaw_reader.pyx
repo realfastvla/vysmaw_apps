@@ -295,7 +295,7 @@ cdef class Reader(object):
                     else:
                         print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
                         if bind0 == -1:
-                            print('findblind input: {0} {1} {2}'.format(info.stations[0], info.stations[1]))
+                            print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
 
                 else:
                     print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
@@ -303,11 +303,8 @@ cdef class Reader(object):
                 vysmaw_message_unref(msg)
             else:
                 pass
-#                print('NULL')
 
             self.currenttime = time(NULL)
-
-#            PyErr_CheckSignals()
 
         # after while loop, check reason for ending
         if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
