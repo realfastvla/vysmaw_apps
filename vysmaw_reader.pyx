@@ -1,6 +1,7 @@
 import cython
 from libc.stdint cimport *
 from libc.stdlib cimport *
+from libc.stdio cimport printf
 from libc.time cimport time_t
 from cpython cimport PyErr_CheckSignals
 from vysmaw import cy_vysmaw
@@ -223,6 +224,8 @@ cdef class Reader(object):
 
         # initialize
         cdef unsigned long spec = 0
+        cdef float readfrac
+        cdef float rtfrac
         cdef unsigned long speclast = 0
         cdef unsigned int lastints = min(self.ni, 10) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
@@ -245,65 +248,61 @@ cdef class Reader(object):
         # old way: count until total number of spec is received or timeout elapses
 #        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
         # new way: count spec only in last integration
-        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+        with nogil:
+            while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-            if msg is not NULL:
-                self.lastmsgtyp = msg[0].typ
-                if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
+                if msg is not NULL:
+                    self.lastmsgtyp = msg[0].typ
+                    if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
 
-                    if not spec % specbreak:
-                        print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
+                        if not spec % specbreak:
+#                            print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
+                            readfrac = 100.*spec * 1./self.nspec
+                            rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
+                            printf('At spec %d: %1.0f of data in %1.1fx realtime', spec, readfrac, rtfrac)
 
-                    info = msg[0].content.valid_buffer.info
+                        info = msg[0].content.valid_buffer.info
 
-                    # get the goodies asap.
-                    # first, find best time bin
-                    msg_time = info.timestamp * 1./1000000000
+                        # get the goodies asap.
+                        # first, find best time bin
+                        msg_time = info.timestamp * 1./1000000000
 
-                    for iind in range(self.ni):
-                        dtimearr[iind] = fabs(timearr[iind]-msg_time)
+                        for iind in range(self.ni):
+                            dtimearr[iind] = fabs(timearr[iind]-msg_time)
 
-                    iind0 = minind(dtimearr, self.ni)
+                        iind0 = minind(dtimearr, self.ni)
 
-                    # find starting channel for spectrum
-                    ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
+                        # find starting channel for spectrum
+                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
-                    # find pol in pollist
-                    pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
+                        # find pol in pollist
+                        pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
-                    # find bl i blarr
-                    bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
+                        # find bl i blarr
+                        bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
-#                    if bind0 == 0 and pind0 == 0 and ch0 == 0:
-#                        print(msg_time, self.t0, msg_time-self.t0, iind0, bind0, pind0, ch0)
-
-                    # put data in numpy array, if an index exists
-                    if bind0 > -1 and ch0 > -1 and pind0 > -1:
+                        # put data in numpy array, if an index exists
+                        if bind0 > -1 and ch0 > -1 and pind0 > -1:
 # TODO: check this 
-#                        if data[iind0, bind0, ch0, pind0] != 0j:
-#                            print('data value already set at {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+#                            if data[iind0, bind0, ch0, pind0] != 0j:
+#                                printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
 
-                        # this requires python GIL
-#                        spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
-#                        spectrum = <cnp.complex64_t[:self.nchan]> msg[0].content.valid_buffer.spectrum
-                        for i in range(self.nchan):
-                            data[iind0, bind0, ch0+i, pind0] = msg[0].content.valid_buffer.spectrum[i]
+                            for i in range(self.nchan):
+                                data[iind0, bind0, ch0+i, pind0] = msg[0].content.valid_buffer.spectrum[i]
 
-                        spec += 1
-                        if iind0 >= self.ni-lastints:
-                            speclast += 1
-                    elif info.stations[0] != info.stations[1]:
-                        print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
-                        if bind0 == -1:
-                            print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
+                            spec += 1
+                            if iind0 >= self.ni-lastints:
+                                speclast += 1
+#                        elif info.stations[0] != info.stations[1]:
+#                            print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+#                            if bind0 == -1:
+#                                print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
 
-                else:
-                    print(str('Unexpected message type: {0}'.format(message_types[msg[0].typ])))
-
-                vysmaw_message_unref(msg)
-            else:
-                pass
+                    else:
+                        printf('Unexpected message type: %s', msg[0].typ)
+                with gil:  # TODO: why?
+                    vysmaw_message_unref(msg)
 
             self.currenttime = time(NULL)
 
