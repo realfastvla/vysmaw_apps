@@ -196,6 +196,7 @@ cdef class Reader(object):
 #        print('started filter')
 #        usleep(10000000)
 
+    @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -280,8 +281,8 @@ cdef class Reader(object):
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and ch0 > -1 and pind0 > -1:
 # TODO: check this 
-                        if data[iind0, bind0, ch0, pind0] != 0j:
-                            print('data value already set at {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+#                        if data[iind0, bind0, ch0, pind0] != 0j:
+#                            print('data value already set at {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
 
                         # this requires python GIL
 #                        spectrum = <cnp.complex64_t[:self.nchan]> (<cnp.complex64_t*>msg[0].content.valid_buffer.spectrum)
@@ -292,7 +293,7 @@ cdef class Reader(object):
                         spec += 1
                         if iind0 >= self.ni-lastints:
                             speclast += 1
-                    else:
+                    elif info.stations[0] != info.stations[1]:
                         print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
                         if bind0 == -1:
                             print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
@@ -354,6 +355,7 @@ cdef class Reader(object):
             print('and {0} NULLs'.format(nulls))
 
 
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int minind(double[:] arr, int ni) nogil:
@@ -368,6 +370,8 @@ cdef int minind(double[:] arr, int ni) nogil:
 
     return mini
 
+
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int findpolind(int pol, int[::1] polinds, int npol) nogil:
@@ -381,6 +385,8 @@ cdef int findpolind(int pol, int[::1] polinds, int npol) nogil:
 
     return ind1
 
+
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
@@ -398,9 +404,11 @@ cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
 
     return bind0
 
+
+@cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int findch0(int bbid, int spid, int[:,::1] bbsplist, int nchan, int nspw) nogil:
+cdef int findch0(int bbid, int spid, int[:, ::1] bbsplist, int nchan, int nspw) nogil:
     cdef int i
     cdef int ch0 = -1
 
