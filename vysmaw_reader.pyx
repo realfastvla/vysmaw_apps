@@ -248,11 +248,11 @@ cdef class Reader(object):
         # old way: count until total number of spec is received or timeout elapses
 #        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
         # new way: count spec only in last integration
-        with nogil:
-            while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
-                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-                if msg is not NULL:
+            if msg is not NULL:
+                with nogil:
                     self.lastmsgtyp = msg[0].typ
                     if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
 
@@ -301,8 +301,9 @@ cdef class Reader(object):
 
                     else:
                         printf('Unexpected message type: %s', msg[0].typ)
-                with gil:  # TODO: why?
-                    vysmaw_message_unref(msg)
+
+                # TODO: check why this requires the gil
+                vysmaw_message_unref(msg)
 
             self.currenttime = time(NULL)
 
