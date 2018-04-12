@@ -260,7 +260,7 @@ cdef class Reader(object):
 #                            print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
                             readfrac = 100.*spec * 1./self.nspec
                             rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                            printf('At spec %d: %1.0f of data in %1.1fx realtime', spec, readfrac, rtfrac)
+                            printf('At spec %d: %1.0f\% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
 
                         info = msg[0].content.valid_buffer.info
 
