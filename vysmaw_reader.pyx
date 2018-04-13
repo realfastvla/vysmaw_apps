@@ -249,10 +249,10 @@ cdef class Reader(object):
 #        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
         # new way: count spec only in last integration
         while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+            with nogil:
+                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-            if msg is not NULL:
-                with nogil:
+                if msg is not NULL:
                     self.lastmsgtyp = msg[0].typ
                     if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
 
@@ -260,7 +260,7 @@ cdef class Reader(object):
 #                            print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
                             readfrac = 100.*spec * 1./self.nspec
                             rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                            printf('At spec %d: %1.0f\% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
+                            printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
 
                         info = msg[0].content.valid_buffer.info
 
@@ -300,9 +300,10 @@ cdef class Reader(object):
 #                                print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
 
                     else:
-                        printf('Unexpected message type: %s', msg[0].typ)
+                        printf('Unexpected message type: %u', msg[0].typ)
 
-                # TODO: check why this requires the gil
+            # TODO: check why this requires the gil
+            if msg is not NULL:
                 vysmaw_message_unref(msg)
 
             self.currenttime = time(NULL)
