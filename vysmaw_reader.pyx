@@ -3,7 +3,7 @@ from libc.stdint cimport *
 from libc.stdlib cimport *
 from libc.stdio cimport printf
 from libc.time cimport time_t
-from cpython cimport PyErr_CheckSignals
+#from cpython cimport PyErr_CheckSignals
 from vysmaw import cy_vysmaw
 from vysmaw.cy_vysmaw cimport *
 import numpy as np
@@ -22,6 +22,8 @@ cdef extern from "math.h" nogil:
 cdef extern from "math.h" nogil:
     double fabs(double arg)
 
+cdef extern from "vysmaw.h" nogil:
+    void vysmaw_message_unref(vysmaw_message *arg)
 
 message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
 	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
@@ -302,9 +304,8 @@ cdef class Reader(object):
                     else:
                         printf('Unexpected message type: %u', msg[0].typ)
 
-            # TODO: check why this requires the gil
-            if msg is not NULL:
-                vysmaw_message_unref(msg)
+                    # TODO: check why this requires the gil
+                    vysmaw_message_unref(msg)
 
             self.currenttime = time(NULL)
 
