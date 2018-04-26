@@ -22,8 +22,9 @@ cdef extern from "math.h" nogil:
 cdef extern from "math.h" nogil:
     double fabs(double arg)
 
-cdef extern from "vysmaw.h" nogil:
-    void vysmaw_message_unref(vysmaw_message *arg)
+# remove for latest vysmaw
+#cdef extern from "vysmaw.h" nogil:
+#    void vysmaw_message_unref(vysmaw_message *arg)
 
 message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
 	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
