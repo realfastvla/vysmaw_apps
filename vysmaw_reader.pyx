@@ -97,7 +97,7 @@ cdef class Reader(object):
     cdef float inttime_micros
     cdef int[::1] antlist
     cdef int[:, ::1] bbsplist
-    cdef int[::1] pollist
+    cdef long[::1] pollist
     cdef bool polauto
     cdef unsigned int ni
     cdef unsigned int nant
@@ -313,8 +313,8 @@ cdef class Reader(object):
                             spec += 1
                             if iind0 >= self.ni-lastints:
                                 speclast += 1
-#                        elif info.stations[0] != info.stations[1]:
-#                            print('No place found: {0} {1} {2} {3}'.format(iind0, bind0, ch0, pind0))
+                        else:
+                            printf('No place found: %d %d %d %d\n', iind0, bind0, ch0, pind0)
 #                            if bind0 == -1:
 #                                print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
 
@@ -392,7 +392,7 @@ cdef int minind(double[:] arr, int ni) nogil:
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int findpolind(int pol, int[::1] polinds, int npol) nogil:
+cdef int findpolind(int pol, long[::1] polinds, int npol) nogil:
     cdef int ind
     cdef int ind1 = -1
 
