@@ -23,8 +23,8 @@ cdef extern from "math.h" nogil:
     double fabs(double arg)
 
 # remove for latest vysmaw
-#cdef extern from "vysmaw.h" nogil:
-#    void vysmaw_message_unref(vysmaw_message *arg)
+cdef extern from "vysmaw.h" nogil:
+    void vysmaw_message_unref(vysmaw_message *arg)
 
 message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
 	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
@@ -60,14 +60,22 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
-             uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
-             void *user_data, bool *pass_filter) nogil:
+cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id,
+                          uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+                          void *user_data, bool *pass_filter) nogil:
 
+    cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
 
+    cdef cnp.float64_t t0 = select[0]
+    cdef cnp.float64_t t1 = select[1]
+
     for i in range(num_infos):
-        pass_filter[i] = True
+        ts = infos[i].timestamp * 1./1000000000
+        if (t0 <= ts) and (ts < t1) and ((pol == 0) or (pol == 3)):
+            pass_filter[i] = True
+        else:
+            pass_filter[i] = False
 
     return
 
@@ -88,8 +96,9 @@ cdef class Reader(object):
     cdef int nchan
     cdef float inttime_micros
     cdef int[::1] antlist
-    cdef int[::1] pollist
     cdef int[:, ::1] bbsplist
+    cdef int[::1] pollist
+    cdef bool polauto
     cdef unsigned int ni
     cdef unsigned int nant
     cdef unsigned int nbl
@@ -100,9 +109,8 @@ cdef class Reader(object):
     cdef vysmaw_message_type lastmsgtyp
 
     def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
-                  int[::1] pollist, int[:,::1] bbsplist,
-                  float inttime_micros = 1000000, int nchan = 32,
-                  str cfile = None, cnp.float64_t timeout = 10, int offset = 4):
+                  int[:,::1] bbsplist, bool polauto, float inttime_micros=1000000, int nchan=32,
+                  str cfile=None, cnp.float64_t timeout=10, int offset=4):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
@@ -110,8 +118,8 @@ cdef class Reader(object):
             offset is time offset to expect vys data from t0 and t1.
             antlist is list of antenna numbers (1-based)
             bbsplist is array of [bbid, spwid] and where to place them.
+            polauto is bool that defines selecting of only auto pols (rr, ll)
             nchan is number of channels per subband, assumed equal for all subbands received.
-            pollist is list polarization indexes and where to place them.
         """
 
         # set parameters
@@ -120,8 +128,8 @@ cdef class Reader(object):
         self.timeout = timeout
         self.antlist = antlist
         self.bbsplist = bbsplist
+        self.polauto = polauto
         self.nchan = nchan
-        self.pollist = pollist
         self.inttime_micros = inttime_micros
         self.offset = offset  # (integer) seconds early to open handle
 
@@ -130,6 +138,10 @@ cdef class Reader(object):
         self.nant = len(self.antlist)
         self.nbl = self.nant*(self.nant-1)/2  # cross hands only
         self.nspw = len(self.bbsplist)
+        if self.polauto:
+            self.pollist = np.array([0, 3])
+        else:
+            self.pollist = np.array([0, 1, 2, 3])
         self.npol = len(self.pollist)
         self.nchantot = self.nspw*self.nchan
         self.nspec = self.ni*self.nbl*self.nspw*self.npol
@@ -191,7 +203,11 @@ cdef class Reader(object):
         cdef vysmaw_spectrum_filter *f = \
             <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
 
-        f[0] = filter_time
+        if self.polauto:
+            f[0] = filter_timeauto
+        else:
+            f[0] = filter_time
+
         self.handle, self.consumers = self.config.start(1, f, u)
 
         free(f)
@@ -305,7 +321,6 @@ cdef class Reader(object):
                     else:
                         printf('Unexpected message type: %u', msg[0].typ)
 
-                    # TODO: check why this requires the gil
                     vysmaw_message_unref(msg)
 
             self.currenttime = time(NULL)
