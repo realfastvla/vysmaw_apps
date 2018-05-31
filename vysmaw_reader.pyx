@@ -162,7 +162,6 @@ cdef class Reader(object):
         self.nspec = self.ni*self.nbl*self.nspw*self.npol
 
         # initialize
-#        self.lastmsgtyp = VYSMAW_MESSAGE_VALID_BUFFER
         self.lastmsgtyp = VYSMAW_MESSAGE_SPECTRA
 
         # configure
@@ -174,7 +173,7 @@ cdef class Reader(object):
             self.config = cy_vysmaw.Configuration()
 
         # modify configuration
-        specbytes = vys_max_spectrum_buffer_size(self.nchan, 1)
+        specbytes = 8*self.nchan
         self.config.max_spectrum_buffer_size = specbytes
         self.config.spectrum_buffer_pool_size = self.nspec*specbytes
         print('Setting spectrum size to {0} bytes and buffer size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
@@ -220,10 +219,11 @@ cdef class Reader(object):
         else:
             f = filter_time
 
+        print('before start')
         self.handle, self.consumers = self.config.start(f, u)
-
-        free(f)
+        print('after start')
         free(u)
+        print('after free')
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
