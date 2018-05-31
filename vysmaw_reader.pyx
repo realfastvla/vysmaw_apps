@@ -5,7 +5,7 @@ from libc.stdio cimport printf
 from libc.time cimport time_t
 #from cpython cimport PyErr_CheckSignals
 from vysmaw import cy_vysmaw
-from cy_vysmaw cimport *
+from vysmaw.cy_vysmaw cimport *
 import numpy as np
 cimport numpy as cnp
 
@@ -215,16 +215,10 @@ cdef class Reader(object):
         cdef void **u = <void **>malloc(sizeof(void *))
         u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
 
-        # set filters
-#        cdef vysmaw_spectrum_filter *f = \
-#            <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
-        cdef vysmaw_spectrum_filter f = \
-            <vysmaw_spectrum_filter>malloc(sizeof(vysmaw_spectrum_filter))
-
         if self.polauto:
-            f[0] = filter_timeauto
+            f = filter_timeauto
         else:
-            f[0] = filter_time
+            f = filter_time
 
         self.handle, self.consumers = self.config.start(f, u)
 
