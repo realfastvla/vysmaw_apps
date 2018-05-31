@@ -5,15 +5,17 @@ from Cython.Build import cythonize
 from Cython.Distutils import build_ext
 import sys
 #sys.path.append('/home/cbe-master/wcbe/py/lib/python2.7/site-packages/vysmaw')
-sys.path.append("/opt/cbe-local/lib/python3.6/site-packages/vysmaw")
+#sys.path.append("/opt/cbe-local/lib/python3.6/site-packages/vysmaw")
+sys.path.append("/home/cbe-master/realfast/soft/vysmaw/py")
 
 extensions = [
     Extension("*", ["*.pyx"],
         libraries = ["vysmaw", "vys", "python3.6m"],
-        include_dirs = ["/opt/cbe-local/include"],
+#        include_dirs = ["/opt/cbe-local/include"],
+        include_dirs = ["/home/cbe-master/realfast/soft/vysmaw/build/src"],
 #        library_dirs = ["/home/cbe-master/wcbe/py/lib/python2.7/site-packages/vysmaw", "/opt/cbe-local/lib"],
 #        library_dirs = ["/opt/cbe-local/lib/python3.6/site-packages/vysmaw", "/opt/cbe-local/lib"],
-        library_dirs = ["/users/mpokorny/projects/vysmaw"],
+        library_dirs = ["/home/cbe-master/realfast/soft/vysmaw/py", "/home/cbe-master/realfast/soft/vysmaw/src"],
         extra_compile_args = ["-fno-strict-aliasing"])]
 
 setup(

@@ -5,7 +5,7 @@ from libc.stdio cimport printf
 from libc.time cimport time_t
 #from cpython cimport PyErr_CheckSignals
 from vysmaw import cy_vysmaw
-from vysmaw.cy_vysmaw cimport *
+from cy_vysmaw cimport *
 import numpy as np
 cimport numpy as cnp
 
@@ -26,14 +26,29 @@ cdef extern from "math.h" nogil:
 cdef extern from "vysmaw.h" nogil:
     void vysmaw_message_unref(vysmaw_message *arg)
 
-message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
-	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
-	      VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE, VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_VERSION_MISMATCH,
-	      VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW, VYSMAW_MESSAGE_END],
-	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_ID_FAILURE", "VYSMAW_MESSAGE_QUEUE_ALERT", 
-	      "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", 
-	      "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE", "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_VERSION_MISMATCH",
-	      "VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW", "VYSMAW_MESSAGE_END"]))
+# new style
+message_types = dict(zip([VYSMAW_MESSAGE_SPECTRA, VYSMAW_MESSAGE_QUEUE_ALERT,
+                          VYSMAW_MESSAGE_SPECTRUM_BUFFER_STARVATION,
+                          VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE,
+                          VYSMAW_MESSAGE_VERSION_MISMATCH,
+                          VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW,
+                          VYSMAW_MESSAGE_END],
+                         ["VYSMAW_MESSAGE_SPECTRA", "VYSMAW_MESSAGE_QUEUE_ALERT",
+                          "VYSMAW_MESSAGE_SPECTRUM_BUFFER_STARVATION",
+                          "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE",
+                          "VYSMAW_MESSAGE_VERSION_MISMATCH",
+                          "VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW",
+                          "VYSMAW_MESSAGE_END"]))
+
+# old style
+#message_types = dict(zip([VYSMAW_MESSAGE_VALID_BUFFER, VYSMAW_MESSAGE_ID_FAILURE, VYSMAW_MESSAGE_QUEUE_ALERT, 
+#	      VYSMAW_MESSAGE_DATA_BUFFER_STARVATION, VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION, 
+#	      VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE, VYSMAW_MESSAGE_RDMA_READ_FAILURE, VYSMAW_MESSAGE_VERSION_MISMATCH,
+#	      VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW, VYSMAW_MESSAGE_END],
+#	      ["VYSMAW_MESSAGE_VALID_BUFFER", "VYSMAW_MESSAGE_ID_FAILURE", "VYSMAW_MESSAGE_QUEUE_ALERT", 
+#	      "VYSMAW_MESSAGE_DATA_BUFFER_STARVATION", "VYSMAW_MESSAGE_SIGNAL_BUFFER_STARVATION", 
+#	      "VYSMAW_MESSAGE_SIGNAL_RECEIVE_FAILURE", "VYSMAW_MESSAGE_RDMA_READ_FAILURE", "VYSMAW_MESSAGE_VERSION_MISMATCH",
+#	      "VYSMAW_MESSAGE_SIGNAL_RECEIVE_QUEUE_UNDERFLOW", "VYSMAW_MESSAGE_END"]))
 
 
 @cython.boundscheck(False)
@@ -139,7 +154,7 @@ cdef class Reader(object):
         self.nbl = self.nant*(self.nant-1)/2  # cross hands only
         self.nspw = len(self.bbsplist)
         if self.polauto:
-            self.pollist = np.array([0, -1, -1, 1])
+            self.pollist = np.array([0, 3])
         else:
             self.pollist = np.array([0, 1, 2, 3])
         self.npol = len(self.pollist)
@@ -147,7 +162,8 @@ cdef class Reader(object):
         self.nspec = self.ni*self.nbl*self.nspw*self.npol
 
         # initialize
-        self.lastmsgtyp = VYSMAW_MESSAGE_VALID_BUFFER
+#        self.lastmsgtyp = VYSMAW_MESSAGE_VALID_BUFFER
+        self.lastmsgtyp = VYSMAW_MESSAGE_SPECTRA
 
         # configure
         if cfile:
@@ -200,21 +216,20 @@ cdef class Reader(object):
         u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
 
         # set filters
-        cdef vysmaw_spectrum_filter *f = \
-            <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
+#        cdef vysmaw_spectrum_filter *f = \
+#            <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
+        cdef vysmaw_spectrum_filter f = \
+            <vysmaw_spectrum_filter>malloc(sizeof(vysmaw_spectrum_filter))
 
         if self.polauto:
             f[0] = filter_timeauto
         else:
             f[0] = filter_time
 
-        self.handle, self.consumers = self.config.start(1, f, u)
+        self.handle, self.consumers = self.config.start(f, u)
 
         free(f)
         free(u)
-
-#        print('started filter')
-#        usleep(10000000)
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -273,25 +288,10 @@ cdef class Reader(object):
 
                 if msg is not NULL:
                     self.lastmsgtyp = msg[0].typ
-                    if msg[0].typ is VYSMAW_MESSAGE_VALID_BUFFER:
-
-                        if not spec % specbreak:
-#                            print('At spec {0}: {1:1.0f}% of data in {2:1.1f}x realtime'.format(spec, 100*float(spec)/float(self.nspec), (self.currenttime-starttime)/(self.t1-self.t0)))
-                            readfrac = 100.*spec * 1./self.nspec
-                            rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                            printf('\nAt spec %lu: %1.0f%% of data in %1.1fx realtime', spec, readfrac, rtfrac)
-
-                        info = msg[0].content.valid_buffer.info
+                    if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
+                        info = msg[0].content.spectra.info
 
                         # get the goodies asap.
-                        # first, find best time bin
-                        msg_time = info.timestamp * 1./1000000000
-
-                        for iind in range(self.ni):
-                            dtimearr[iind] = fabs(timearr[iind]-msg_time)
-
-                        iind0 = minind(dtimearr, self.ni)
-
                         # find starting channel for spectrum
                         ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
@@ -303,20 +303,32 @@ cdef class Reader(object):
 
                         # put data in numpy array, if an index exists
                         if bind0 > -1 and ch0 > -1 and pind0 > -1:
+                            specpermsg = msg[0].content.spectra.num_spectra
+                            for i in range(specpermsg):
+                                if not spec % specbreak:
+                                    readfrac = 100.*spec * 1./self.nspec
+                                    rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
+                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
+
+#                                if (msg[0].data[i].failed_verification is False) and \
+#                                   (msg[0].data[i].rdma_read_status == "") and \
+#                                   (len(msg[0].data[i].values) > 0):
+                                msg_time = msg[0].data[i].timestamp * 1./1000000000
+                                for iind in range(self.ni):
+                                    dtimearr[iind] = fabs(timearr[iind]-msg_time)
+                                iind0 = minind(dtimearr, self.ni)
 # TODO: check this 
 #                            if data[iind0, bind0, ch0, pind0] != 0j:
 #                                printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
 
-                            for i in range(self.nchan):
-                                data[iind0, bind0, ch0+i, pind0] = msg[0].content.valid_buffer.spectrum[i]
+                                for j in range(self.nchan):
+                                    data[iind0, bind0, ch0+i, pind0] = msg[0].data[i].values[j]
 
-                            spec += 1
-                            if iind0 >= self.ni-lastints:
-                                speclast += 1
+                                spec += 1
+                                if iind0 >= self.ni-lastints:
+                                    speclast += 1
                         else:
-                            printf('No index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
-#                            if bind0 == -1:
-#                                print('ant1, ant2, antlist input: {0} {1} {2}'.format(info.stations[0], info.stations[1], self.antlist))
+                            printf('No index: %d %d %d\n', bind0, ch0, pind0)
 
                     else:
                         printf('Unexpected message type: %u', msg[0].typ)
