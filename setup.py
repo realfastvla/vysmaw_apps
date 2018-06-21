@@ -6,16 +6,19 @@ from Cython.Distutils import build_ext
 import sys
 #sys.path.append('/home/cbe-master/wcbe/py/lib/python2.7/site-packages/vysmaw')
 #sys.path.append("/opt/cbe-local/lib/python3.6/site-packages/vysmaw")
-sys.path.append("/home/cbe-master/realfast/soft/vysmaw/py")
+#sys.path.append("/home/cbe-master/realfast/soft/vysmaw/py")
+sys.path.append("/users/claw/anaconda/envs/py36/lib/python3.6/site-packages/vysmaw")
 
 extensions = [
     Extension("*", ["*.pyx"],
         libraries = ["vysmaw", "vys", "python3.6m"],
 ##        include_dirs = ["/opt/cbe-local/include"],
-        include_dirs = ["/users/mpokorny/projects/vysmaw/src/", "/home/cbe-master/realfast/soft/vysmaw/build/src"],
+#        include_dirs = ["/users/mpokorny/projects/vysmaw/src/", "/home/cbe-master/realfast/soft/vysmaw/build/src"],
+        include_dirs = ["/users/mpokorny/projects/vysmaw/build/src", "/users/mpokorny/projects/vysmaw/build/src"],
 #        library_dirs = ["/home/cbe-master/wcbe/py/lib/python2.7/site-packages/vysmaw", "/opt/cbe-local/lib"],
 #        library_dirs = ["/opt/cbe-local/lib/python3.6/site-packages/vysmaw", "/opt/cbe-local/lib"],
-        library_dirs = ["/home/cbe-master/realfast/soft/vysmaw/py", "/home/cbe-master/realfast/soft/vysmaw/build/src"],
+#        library_dirs = ["/home/cbe-master/realfast/soft/vysmaw/py", "/home/cbe-master/realfast/soft/vysmaw/build/src"],
+        library_dirs = ["/users/claw/anaconda/envs/py36/lib/python3.6/site-packages/vysmaw", "/users/mpokorny/projects/vysmaw/src"],
         extra_compile_args = ["-fno-strict-aliasing"])]
 
 setup(
