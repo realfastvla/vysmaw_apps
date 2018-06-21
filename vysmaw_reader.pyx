@@ -107,7 +107,7 @@ cdef class Reader(object):
     cdef cnp.float64_t timeout
     cdef Configuration config
     cdef int offset
-    cdef list consumers
+    cdef Consumer consumer
     cdef Handle handle
     cdef long currenttime
     cdef int nchan
@@ -206,7 +206,7 @@ cdef class Reader(object):
             self.close()
 
     cpdef open(self):
-        """ Create the handle and consumers
+        """ Create the handle and consumer
         """
 
         # define filter inputs
@@ -221,11 +221,8 @@ cdef class Reader(object):
         else:
             f = filter_time
 
-        print('before start')
-        self.handle, self.consumers = self.config.start(f, u)
-        print('after start')
-#        free(u)
-#        print('after free')
+        self.handle, self.consumer = self.config.start(f, u)
+        free(u)
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -235,7 +232,7 @@ cdef class Reader(object):
         """ Read in the time window and place in numpy array of given shape
         """
 
-        cdef Consumer c0 = self.consumers[0]
+        cdef Consumer c0 = self.consumer
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef vysmaw_data_info info
         cdef double msg_time
@@ -353,7 +350,7 @@ cdef class Reader(object):
         """
 
         cdef vysmaw_message *msg = NULL
-        cdef Consumer c0 = self.consumers[0]
+        cdef Consumer c0 = self.consumer
         cdef vysmaw_message_queue queue0 = c0.queue()
 
         msgcnt = dict(zip(message_types.keys(), [0]*len(message_types)))
