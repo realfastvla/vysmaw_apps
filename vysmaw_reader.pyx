@@ -281,6 +281,7 @@ cdef class Reader(object):
 
             if msg is not NULL:
                 self.lastmsgtyp = msg[0].typ
+                printf("got one")
                 if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
                     info = msg[0].content.spectra.info
 
@@ -326,6 +327,8 @@ cdef class Reader(object):
                     printf('Unexpected message type: %u', msg[0].typ)
 
                 vysmaw_message_unref(msg)
+            else:
+                printf("NULL")
 
             self.currenttime = time(NULL)
 
