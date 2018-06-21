@@ -85,6 +85,18 @@ cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb
     return
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id,
+                      uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+                      void *user_data, bool *pass_filter) nogil:
+
+    for i in range(num_infos):
+        pass_filter[i] = True
+
+    return
+
+
 @cython.final
 cdef class Reader(object):
     """ Object to manage open, read, close for vysmaw application
