@@ -92,7 +92,7 @@ cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx
                       void *user_data, bool *pass_filter) nogil:
 
     for i in range(num_infos):
-        pass_filter[i] = True
+        pass_filter[i] = False
 
     return
 
@@ -179,6 +179,7 @@ cdef class Reader(object):
         self.config.max_spectrum_buffer_size = specbytes
         self.config.spectrum_buffer_pool_size = self.nspec*specbytes
         print('Setting spectrum size to {0} bytes and buffer size to {1} bytes'.format(self.config._c_configuration.max_spectrum_buffer_size, self.config._c_configuration.spectrum_buffer_pool_size))
+        self.currenttime = time(NULL)
 
     def __enter__(self):
         self.currenttime = time(NULL)
@@ -221,7 +222,10 @@ cdef class Reader(object):
         else:
             f = filter_time
 
-        self.handle, self.consumer = self.config.start(f, u)
+        print("about to start")
+        self.handle, self.consumer = self.config.start(f, NULL)
+        print("started")
+
         free(u)
 
     @cython.initializedcheck(False)
