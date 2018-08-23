@@ -87,34 +87,6 @@ cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb
     return
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id,
-                      uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
-                      void *user_data, bool *pass_filter) nogil:
-
-    cdef unsigned int i
-
-    for i in range(num_infos):
-        pass_filter[i] = False
-
-    return
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef void filter_all(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id,
-                     uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
-                     void *user_data, bool *pass_filter) nogil:
-
-    cdef unsigned int i
-
-    for i in range(num_infos):
-        pass_filter[i] = True
-
-    return
-
-
 @cython.final
 cdef class Reader(object):
     """ Object to manage open, read, close for vysmaw application
@@ -228,11 +200,12 @@ cdef class Reader(object):
         """ Create the handle and consumer
         """
 
-        # define filter inputs
+# old way
 #        cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
-        # set windows
 #        cdef void **u = <void **>malloc(sizeof(void *))
 #        u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
+#        self.handle, self.consumer = self.config.start(f, u)
+#        free(u)
 
         cdef double[::1] filterarr_memview
         filterarr_memview = np.ascontiguousarray([self.t0, self.t1])
@@ -242,9 +215,7 @@ cdef class Reader(object):
         else:
             f = filter_time
 
-#        self.handle, self.consumer = self.config.start(f, u)
         self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
-#        free(u)
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -333,8 +304,8 @@ cdef class Reader(object):
                                 iind0 = minind(dtimearr, self.ni)
 #                                printf(self.t0, self.t1, msg_time)
 # TODO: check this 
-#                                if data[iind0, bind0, ch0, pind0] != 0j:
-#                                    printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
+                                if data[iind0, bind0, ch0, pind0] != 0j:
+                                    printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
 
                                 for j in range(self.nchan):
                                     data[iind0, bind0, ch0+i, pind0] = msg[0].data[i].values[j]
