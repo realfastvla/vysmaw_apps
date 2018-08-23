@@ -10,7 +10,7 @@ extensions = [
 #        include_dirs = ["/opt/cbe-local/include", "."],
 #        library_dirs = ["/home/cbe-master/realfast/anaconda/envs/development3/lib/python3.6/site-packages", "/opt/cbe-local/lib"],
         include_dirs = ["/users/mpokorny/projects/vysmaw/src", "."],
-        library_dirs = ["/home/cbe-master/realfast/anaconda/envs/development3/lib/python3.6/site-packages", "/users/mpokorny/projects/vysmaw/build/src"],
+        library_dirs = ["/home/cbe-master/realfast/anaconda/envs/development3/lib/python3.6/site-packages"],
         extra_compile_args = ["-fno-strict-aliasing"])]
 
 

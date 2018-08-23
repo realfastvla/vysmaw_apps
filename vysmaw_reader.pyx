@@ -3,11 +3,13 @@ from libc.stdint cimport *
 from libc.stdlib cimport *
 from libc.stdio cimport printf
 from libc.time cimport time_t
-#from cpython cimport PyErr_CheckSignals
-from vysmaw import cy_vysmaw
-from vysmaw.cy_vysmaw cimport *
+
 import numpy as np
 cimport numpy as cnp
+
+from vysmaw import cy_vysmaw
+from vysmaw.cy_vysmaw cimport *
+
 
 cdef extern from "time.h" nogil:
     ctypedef int time_tt
@@ -91,8 +93,24 @@ cdef void filter_none(const char *config_id, const uint8_t *stns, uint8_t bb_idx
                       uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
                       void *user_data, bool *pass_filter) nogil:
 
+    cdef unsigned int i
+
     for i in range(num_infos):
         pass_filter[i] = False
+
+    return
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef void filter_all(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id,
+                     uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+                     void *user_data, bool *pass_filter) nogil:
+
+    cdef unsigned int i
+
+    for i in range(num_infos):
+        pass_filter[i] = True
 
     return
 
@@ -211,22 +229,22 @@ cdef class Reader(object):
         """
 
         # define filter inputs
-        cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
-
+#        cdef cnp.ndarray[cnp.float64_t, ndim=1, mode="c"] filterarr = np.array([self.t0, self.t1], dtype=np.float64)
         # set windows
-        cdef void **u = <void **>malloc(sizeof(void *))
-        u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
+#        cdef void **u = <void **>malloc(sizeof(void *))
+#        u[0] = &filterarr[0]       # See https://github.com/cython/cython/wiki/tutorials-NumpyPointerToC
+
+        cdef double[::1] filterarr_memview
+        filterarr_memview = np.ascontiguousarray([self.t0, self.t1])
 
         if self.polauto:
             f = filter_timeauto
         else:
             f = filter_time
 
-        print("about to start")
-        self.handle, self.consumer = self.config.start(f, NULL)
-        print("started")
-
-        free(u)
+#        self.handle, self.consumer = self.config.start(f, u)
+        self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
+#        free(u)
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -280,59 +298,59 @@ cdef class Reader(object):
 #        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
         # new way: count spec only in last integration
         while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
-#            with nogil:
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+            with nogil:
+                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-            if msg is not NULL:
-                self.lastmsgtyp = msg[0].typ
-                printf("got one")
-                if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
-                    info = msg[0].content.spectra.info
+                if msg is not NULL:
+                    self.lastmsgtyp = msg[0].typ
+                    if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
+                        info = msg[0].content.spectra.info
 
-                    # get the goodies asap.
-                    # find starting channel for spectrum
-                    ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
+                        # get the goodies asap.
+                        # find starting channel for spectrum
+                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
-                    # find pol in pollist
-                    pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
+                        # find pol in pollist
+                        pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
-                    # find bl i blarr
-                    bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
+                        # find bl i blarr
+                        bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
-                    # put data in numpy array, if an index exists
-                    if bind0 > -1 and ch0 > -1 and pind0 > -1:
-                        specpermsg = msg[0].content.spectra.num_spectra
-                        for i in range(specpermsg):
-                            if not spec % specbreak:
-                                readfrac = 100.*spec * 1./self.nspec
-                                rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                                printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
+                        # put data in numpy array, if an index exists
+                        if bind0 > -1 and ch0 > -1 and pind0 > -1:
+                            specpermsg = msg[0].content.spectra.num_spectra
+                            for i in range(specpermsg):
+                                if not spec % specbreak:
+                                    readfrac = 100.*spec * 1./self.nspec
+                                    rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
+                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
 
-#                            if (msg[0].data[i].failed_verification is False) and (len(msg[0].data[i].values) > 0):
-#                                   (msg[0].data[i].rdma_read_status == "") and \
-                            msg_time = msg[0].data[i].timestamp * 1./1000000000
-                            for iind in range(self.ni):
-                                dtimearr[iind] = fabs(timearr[iind]-msg_time)
-                            iind0 = minind(dtimearr, self.ni)
+#                                if (msg[0].data[i].failed_verification is False) and (len(msg[0].data[i].values) > 0):
+#                                       (msg[0].data[i].rdma_read_status == "") and \
+                                msg_time = msg[0].data[i].timestamp * 1./1000000000
+                                for iind in range(self.ni):
+                                    dtimearr[iind] = fabs(timearr[iind]-msg_time)
+                                iind0 = minind(dtimearr, self.ni)
+#                                printf(self.t0, self.t1, msg_time)
 # TODO: check this 
-#                            if data[iind0, bind0, ch0, pind0] != 0j:
-#                                printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
+#                                if data[iind0, bind0, ch0, pind0] != 0j:
+#                                    printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
 
-                            for j in range(self.nchan):
-                                data[iind0, bind0, ch0+i, pind0] = msg[0].data[i].values[j]
+                                for j in range(self.nchan):
+                                    data[iind0, bind0, ch0+i, pind0] = msg[0].data[i].values[j]
 
-                            spec += 1
-                            if iind0 >= self.ni-lastints:
-                                speclast += 1
+                                spec += 1
+                                if iind0 >= self.ni-lastints:
+                                    speclast += 1
+                        else:
+                            printf('No index: %d %d %d\n', bind0, ch0, pind0)
+
                     else:
-                        printf('No index: %d %d %d\n', bind0, ch0, pind0)
+                        printf('Unexpected message type: %u', msg[0].typ)
 
-                else:
-                    printf('Unexpected message type: %u', msg[0].typ)
-
-                vysmaw_message_unref(msg)
-            else:
-                printf("NULL")
+                    vysmaw_message_unref(msg)
+#            else:
+#                print("NULL")
 
             self.currenttime = time(NULL)
 

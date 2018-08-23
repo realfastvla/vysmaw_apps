@@ -1,13 +1,15 @@
-from vysmaw cimport *
+import cython
 from libc.stdint cimport *
 from libc.stdlib cimport *
-from cy_vysmaw cimport *
+
 from cpython cimport PyErr_CheckSignals
-import cy_vysmaw
 import signal
 import numpy as np
 cimport numpy as np
-import cython
+
+from vysmaw import cy_vysmaw
+from vysmaw.cy_vysmaw cimport *
+from vysmaw.vysmaw cimport *
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -37,15 +39,9 @@ cpdef run(n_stop, cfile=None):
         config = cy_vysmaw.Configuration()
 
     cdef unsigned int num_spectra = 0
-    cdef vysmaw_spectrum_filter *f = \
-        <vysmaw_spectrum_filter *>malloc(sizeof(vysmaw_spectrum_filter))
- 
-    f[0] = filter
-    handle, consumers = config.start(1, f, NULL)
+    handle, consumers = config.start(filter, NULL)
 
-    free(f)
-
-    cdef Consumer c0 = consumers[0]
+    cdef Consumer c0 = consumers
     cdef vysmaw_message_queue queue = c0.queue()
     cdef vysmaw_message *msg = NULL
     cdef np.ndarray[np.int_t, ndim=1, mode="c"] typecount = np.zeros(7, dtype=np.int)
