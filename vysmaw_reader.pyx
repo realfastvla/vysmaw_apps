@@ -236,6 +236,7 @@ cdef class Reader(object):
         cdef unsigned int iind0
         cdef int ch0
         cdef int i = 0
+        cdef int j = 0
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
         cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
@@ -302,19 +303,18 @@ cdef class Reader(object):
                                 for iind in range(self.ni):
                                     dtimearr[iind] = fabs(timearr[iind]-msg_time)
                                 iind0 = minind(dtimearr, self.ni)
-#                                printf(self.t0, self.t1, msg_time)
-# TODO: check this 
+
                                 if data[iind0, bind0, ch0, pind0] != 0j:
-                                    printf('data value already set at %d %d %d %d', iind0, bind0, ch0, pind0)
+                                    printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
 
                                 for j in range(self.nchan):
-                                    data[iind0, bind0, ch0+i, pind0] = msg[0].data[i].values[j]
+                                    data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
 
                                 spec += 1
                                 if iind0 >= self.ni-lastints:
                                     speclast += 1
                         else:
-                            printf('No index: %d %d %d\n', bind0, ch0, pind0)
+                            printf('No index: %d %d %d\t', bind0, ch0, pind0)
 
                     else:
                         printf('Unexpected message type: %u', msg[0].typ)
