@@ -251,7 +251,7 @@ cdef class Reader(object):
         cdef unsigned int lastints = min(self.ni, 10) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
 
-        print('Expecting {0} ints, {1} bls, and {2} total spectra between times {3} and {4} (timeout {5:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
+        print('Expecting {0} ints, {1} bls, and {2} total spectra of length {3} between times {4} and {5} (timeout {6:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.nchan, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 
         # fill arrays
         for iind in range(self.ni):
