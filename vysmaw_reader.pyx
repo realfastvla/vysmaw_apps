@@ -240,7 +240,6 @@ cdef class Reader(object):
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
         cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
-        cdef cnp.complex64_t[::1] values = np.zeros(shape=self.nchan, dtype=np.complex64)
         cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
@@ -293,7 +292,9 @@ cdef class Reader(object):
                         if bind0 > -1 and ch0 > -1 and pind0 > -1:
                             specpermsg = msg[0].content.spectra.num_spectra
                             for i in range(specpermsg):
-                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status != u""):
+                                # rdma_read_status requires GIL for now
+                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
+#                                if msg[0].data[i].values.shape[0]:
                                     if not spec % specbreak:
                                         readfrac = 100.*spec * 1./self.nspec
                                         rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
@@ -320,11 +321,9 @@ cdef class Reader(object):
                             printf('No index: %d %d %d\t', bind0, ch0, pind0)
 
                     else:
-                        printf('Unexpected message type: %u', msg[0].typ)
+                        printf('Unexpected message type: %u \t', msg[0].typ)
 
                     vysmaw_message_unref(msg)
-#            else:
-#                print("NULL")
 
             self.currenttime = time(NULL)
 
