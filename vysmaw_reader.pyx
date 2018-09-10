@@ -270,60 +270,64 @@ cdef class Reader(object):
         # new way: count spec only in last integration
         while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
 #            with nogil:
-            if True:
-                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+#            if True:
+            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
-                if msg is not NULL:
-                    self.lastmsgtyp = msg[0].typ
-                    if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
-                        info = msg[0].content.spectra.info
+            if msg is not NULL:
+                self.lastmsgtyp = msg[0].typ
+                if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
+                    info = msg[0].content.spectra.info
 
-                        # get the goodies asap.
-                        # find starting channel for spectrum
-                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
+                    # get the goodies asap.
+                    # find starting channel for spectrum
+                    ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
-                        # find pol in pollist
-                        pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
+                    # find pol in pollist
+                    pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
-                        # find bl i blarr
-                        bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
+                    # find bl i blarr
+                    bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
 
-                        # put data in numpy array, if an index exists
-                        if bind0 > -1 and ch0 > -1 and pind0 > -1:
-                            specpermsg = msg[0].content.spectra.num_spectra
-                            for i in range(specpermsg):
-                                # rdma_read_status requires GIL for now
-                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
-#                                if msg[0].data[i].values.shape[0]:
-                                    if not spec % specbreak:
-                                        readfrac = 100.*spec * 1./self.nspec
-                                        rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                                        printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
+                    # put data in numpy array, if an index exists
+                    if bind0 > -1 and ch0 > -1 and pind0 > -1:
+                        specpermsg = msg[0].content.spectra.num_spectra
+                        for i in range(specpermsg):
+                            # rdma_read_status requires GIL for now
+#                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
+                            if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].values is not NULL):
+                                if not spec % specbreak:
+                                    readfrac = 100.*spec * 1./self.nspec
+                                    rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
+                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
 
-                                    msg_time = msg[0].data[i].timestamp * 1./1000000000
-                                    for iind in range(self.ni):
-                                        dtimearr[iind] = fabs(timearr[iind]-msg_time)
-                                    iind0 = minind(dtimearr, self.ni)
+                                msg_time = msg[0].data[i].timestamp * 1./1000000000
+                                for iind in range(self.ni):
+                                    dtimearr[iind] = fabs(timearr[iind]-msg_time)
+                                iind0 = minind(dtimearr, self.ni)
 
-                                    if data[iind0, bind0, ch0, pind0] != 0j:
-                                        printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
+                                if data[iind0, bind0, ch0, pind0] != 0j:
+                                    printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
 
-                                    for j in range(self.nchan):
-                                        data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
+                                for j in range(self.nchan):
+                                    data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
 
-                                    spec += 1
-                                    if iind0 >= self.ni-lastints:
-                                        speclast += 1
-                                else:
-                                    printf('Spectrum not valid\t')
+                                spec += 1
+                                if iind0 >= self.ni-lastints:
+                                    speclast += 1
+                            else:
+                                printf('Invalid spectrum\t')
 
-                        else:
-                            printf('No index: %d %d %d\t', bind0, ch0, pind0)
+                    elif bind0 == -1:
+                        printf('bind not found\t')
+                    elif ch0 == -1:
+                        printf('ch0 not found\t')
+                    elif pind0 == -1:
+                        printf('pind not found\t')
 
-                    else:
-                        printf('Unexpected message type: %u \t', msg[0].typ)
+                else:
+                    printf('Unexpected message type: %u\t', msg[0].typ)
 
-                    vysmaw_message_unref(msg)
+                vysmaw_message_unref(msg)
 
             self.currenttime = time(NULL)
 
