@@ -10,7 +10,6 @@ cimport numpy as cnp
 from vysmaw import cy_vysmaw
 from vysmaw.cy_vysmaw cimport *
 
-
 cdef extern from "time.h" nogil:
     ctypedef int time_tt
     time_tt time(time_t*)
