@@ -9,9 +9,6 @@ extensions = [
         libraries = ["vysmaw", "vys", "python3.6m"],
         include_dirs = ["/opt/cbe-local/include", "."],
         library_dirs = ["/home/cbe-master/wcbe/py/lib/python3.6/site-packages", "/opt/cbe-local/lib"],
-#        library_dirs = ["/home/cbe-master/realfast/anaconda/envs/development3/lib/python3.6/site-packages", "/opt/cbe-local/lib"],
-#        include_dirs = ["/users/mpokorny/projects/vysmaw/src", "."],
-#        library_dirs = ["/home/cbe-master/realfast/anaconda/envs/development3/lib/python3.6/site-packages"],
         extra_compile_args = ["-fno-strict-aliasing"])]
 
 

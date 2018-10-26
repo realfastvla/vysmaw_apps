@@ -317,11 +317,11 @@ cdef class Reader(object):
                                 printf('Invalid spectrum\t')
 
                     elif bind0 == -1:
-                        printf('bind not found\t')
+                        printf('bind not found for (%d, %d)\t', info.stations[0], info.stations[1])
                     elif ch0 == -1:
-                        printf('ch0 not found\t')
+                        printf('ch0 not found for (bbid, spwid) = (%d, %d)\t', info.baseband_id, info.spectral_window_index)
                     elif pind0 == -1:
-                        printf('pind not found\t')
+                        printf('pind not found for %d\t', info.polarization_product_id)
 
                 else:
                     printf('Unexpected message type: %u\t', msg[0].typ)
