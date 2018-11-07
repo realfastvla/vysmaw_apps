@@ -19,7 +19,7 @@ setup(
   cmdclass = {'build_ext': build_ext},
   ext_modules = cythonize(extensions),
   py_modules=['vysmawcli'],
-  install_requires=['Click'],
+  install_requires=['Click', 'cython<0.29'],
   entry_points='''
   [console_scripts]
   vyscheck=vysmawcli:vyscheck

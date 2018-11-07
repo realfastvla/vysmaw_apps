@@ -1,3 +1,4 @@
+# cython: language_level=2
 import cython
 from libc.stdint cimport *
 from libc.stdlib cimport *
@@ -42,8 +43,8 @@ message_types = dict(zip([VYSMAW_MESSAGE_SPECTRA, VYSMAW_MESSAGE_QUEUE_ALERT,
                           "VYSMAW_MESSAGE_END"]))
 
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
              uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
              void *user_data, bool *pass_filter) nogil:
@@ -64,8 +65,8 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
     return
 
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id,
                           uint8_t spw, uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
                           void *user_data, bool *pass_filter) nogil:
@@ -78,7 +79,7 @@ cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb
 
     for i in range(num_infos):
         ts = infos[i].timestamp * 1./1000000000
-        if (t0 <= ts) and (ts < t1) and ((pol == 0) or (pol == 3)):
+        if (t0 <= ts) and (ts < t1) and ((pol == 0) or (pol == 3)) and (stns[0] != stns[1]):
             pass_filter[i] = True
         else:
             pass_filter[i] = False
@@ -217,8 +218,8 @@ cdef class Reader(object):
         self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
 
     @cython.initializedcheck(False)
-#    @cython.boundscheck(False)
-#    @cython.wraparound(False)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
     @cython.cdivision(True)
     cpdef readwindow(self):
         """ Read in the time window and place in numpy array of given shape
@@ -379,8 +380,8 @@ cdef class Reader(object):
 
 
 @cython.initializedcheck(False)
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef int minind(double[:] arr, int ni) nogil:
     cdef int i
     cdef int mini = 0
@@ -395,8 +396,8 @@ cdef int minind(double[:] arr, int ni) nogil:
 
 
 @cython.initializedcheck(False)
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef int findpolind(int pol, long[::1] polinds, int npol) nogil:
     cdef int ind
     cdef int ind1 = -1
@@ -410,8 +411,8 @@ cdef int findpolind(int pol, long[::1] polinds, int npol) nogil:
 
 
 @cython.initializedcheck(False)
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
     cdef int bind0 = -1
     cdef int bind
@@ -429,8 +430,8 @@ cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
 
 
 @cython.initializedcheck(False)
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef int findch0(int bbid, int spid, int[:, ::1] bbsplist, int nchan, int nspw) nogil:
     cdef int i
     cdef int ch0 = -1
