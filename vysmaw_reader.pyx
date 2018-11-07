@@ -196,7 +196,7 @@ cdef class Reader(object):
         if self.handle is not None:
             self.close()
 
-    cpdef open(self):
+    cdef open(self):
         """ Create the handle and consumer
         """
 
@@ -224,6 +224,10 @@ cdef class Reader(object):
     cpdef readwindow(self):
         """ Read in the time window and place in numpy array of given shape
         """
+
+        if self.handle is None:
+            print("vysmaw handle not set. Be sure to use in 'with' context.")
+            raise SystemExit
 
         cdef Consumer c0 = self.consumer
         cdef vysmaw_message_queue queue0 = c0.queue()
@@ -347,7 +351,7 @@ cdef class Reader(object):
         else:
             return None
 
-    cpdef close(self):
+    cdef close(self):
         """ Close the vysmaw handle and catch any remaining messages
         """
 
