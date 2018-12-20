@@ -188,6 +188,7 @@ cdef class Reader(object):
             print('Current time {0} is later than window end {1} (plus offset {2}). Skipping.'.format(self.currenttime, self.t1, self.offset))
             return None
         else:
+            print('Setting up vysmaw filter to start consumer')
             self.open()
 
         return self
@@ -215,6 +216,7 @@ cdef class Reader(object):
         else:
             f = filter_time
 
+        printf('Creating vysmaw handle and consumer')
         self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
 
     @cython.initializedcheck(False)
@@ -258,7 +260,7 @@ cdef class Reader(object):
 
         # fill arrays
         for iind in range(self.ni):
-            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5)
+            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.49)  # 0.49 to avoid multiple assignment
 
         for ind1 in range(self.nant):
             for ind0 in range(ind1):
