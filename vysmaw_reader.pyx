@@ -245,7 +245,6 @@ cdef class Reader(object):
         cdef int j = 0
         cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
         cdef double[::1] timearr = np.zeros(shape=(self.ni,))
-        cdef double[::1] dtimearr = np.zeros(shape=(self.ni,))
         cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
@@ -260,7 +259,7 @@ cdef class Reader(object):
 
         # fill arrays
         for iind in range(self.ni):
-            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.49)  # 0.49 to avoid multiple assignment
+            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5)  # TODO: shift from center to avoid multiple assignment?
 
         for ind1 in range(self.nant):
             for ind0 in range(ind1):
@@ -307,9 +306,9 @@ cdef class Reader(object):
                                     printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
 
                                 msg_time = msg[0].data[i].timestamp * 1./1000000000
-                                for iind in range(self.ni):
-                                    dtimearr[iind] = fabs(timearr[iind]-msg_time)
-                                iind0 = minind(dtimearr, self.ni)
+#                                if bind0 == 0 and ch0 == 0 and pind0 == 0:
+#                                    printf('%f\t', msg_time)
+                                iind0 = mindiff(timearr, msg_time, self.ni)
 
                                 if data[iind0, bind0, ch0, pind0] != 0j:
                                     printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
@@ -388,14 +387,16 @@ cdef class Reader(object):
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int minind(double[:] arr, int ni) nogil:
+cdef int mindiff(double[:] arr, double ref, int ni) nogil:
     cdef int i
     cdef int mini = 0
-    cdef double minimum = arr[mini]
+    cdef double diff = fabs(arr[mini]-ref)
+    cdef double minimum = diff
 
     for i in range(1, ni):
-        if minimum > arr[i]:
-            minimum = arr[i]
+        diff = fabs(arr[i]-ref)
+        if minimum > diff:
+            minimum = diff
             mini = i
 
     return mini
