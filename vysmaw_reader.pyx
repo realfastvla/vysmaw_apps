@@ -259,7 +259,7 @@ cdef class Reader(object):
 
         # fill arrays
         for iind in range(self.ni):
-            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5)
+            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5001)
 
         for ind1 in range(self.nant):
             for ind0 in range(ind1):
