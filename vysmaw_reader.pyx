@@ -24,6 +24,9 @@ cdef extern from "math.h" nogil:
 cdef extern from "math.h" nogil:
     double fabs(double arg)
 
+cdef extern from "math.h" nogil:
+    int floor(double arg)
+
 # remove for latest vysmaw
 cdef extern from "vysmaw.h" nogil:
     void vysmaw_message_unref(vysmaw_message *arg)
@@ -259,7 +262,7 @@ cdef class Reader(object):
 
         # fill arrays
         for iind in range(self.ni):
-            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5001)
+            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5)
 
         for ind1 in range(self.nant):
             for ind0 in range(ind1):
@@ -306,9 +309,9 @@ cdef class Reader(object):
                                     printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
 
                                 msg_time = msg[0].data[i].timestamp * 1./1000000000
-#                                if bind0 == 0 and ch0 == 0 and pind0 == 0:
-#                                    printf('%f\t', msg_time)
-                                iind0 = mindiff(timearr, msg_time, self.ni)
+                                iind0 = mindiffq(timearr, msg_time, self.ni, self.inttime_micros/1000000)
+#                                iind0 = mindiff(timearr, msg_time, self.ni)  # original seems to find time boundaries
+#                                printf('%f %d %f %f\t', msg_time, iind0, timearr[iind0], msg_time-timearr[iind0])
 
                                 if data[iind0, bind0, ch0, pind0] != 0j:
                                     printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
@@ -395,6 +398,24 @@ cdef int mindiff(double[:] arr, double ref, int ni) nogil:
 
     for i in range(1, ni):
         diff = fabs(arr[i]-ref)
+        if minimum > diff:
+            minimum = diff
+            mini = i
+
+    return mini
+
+
+@cython.initializedcheck(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef int mindiffq(double[:] arr, double ref, int ni, double scale) nogil:
+    cdef int i
+    cdef int mini = 0
+    cdef double diff = fabs(arr[mini]-ref)
+    cdef double minimum = diff
+
+    for i in range(1, ni):
+        diff = floor((fabs(arr[i]-ref)/scale))
         if minimum > diff:
             minimum = diff
             mini = i
