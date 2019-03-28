@@ -411,11 +411,11 @@ cdef int mindiff(double[:] arr, double ref, int ni) nogil:
 cdef int mindiffq(double[:] arr, double ref, int ni, double scale) nogil:
     cdef int i
     cdef int mini = 0
-    cdef double diff = fabs(arr[mini]-ref)
+    cdef double diff = fabs(floor((arr[mini]-ref)/scale))
     cdef double minimum = diff
 
     for i in range(1, ni):
-        diff = floor((fabs(arr[i]-ref)/scale))
+        diff = fabs(floor((arr[i]-ref)/scale))
         if minimum > diff:
             minimum = diff
             mini = i
