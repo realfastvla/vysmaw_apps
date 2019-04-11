@@ -219,7 +219,7 @@ cdef class Reader(object):
         else:
             f = filter_time
 
-        printf('Creating vysmaw handle and consumer')
+        printf('Creating vysmaw handle and consumer\n')
         self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
 
     @cython.initializedcheck(False)
@@ -252,6 +252,13 @@ cdef class Reader(object):
 
         # initialize
         cdef unsigned long spec = 0
+        cdef unsigned long spec_good = 0
+        cdef unsigned long spec_dup = 0
+        cdef unsigned long spec_invalid = 0
+        cdef unsigned long spec_badbl = 0
+        cdef unsigned long spec_badch = 0
+        cdef unsigned long spec_badpol = 0
+        cdef int[::1] msgcnt = np.zeros(shape=(len(message_types),),dtype=np.int32)
         cdef float readfrac
         cdef float rtfrac
         cdef unsigned long speclast = 0
@@ -286,6 +293,8 @@ cdef class Reader(object):
                 if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
                     info = msg[0].content.spectra.info
 
+                    spec += msg[0].content.spectra.num_spectra
+
                     # get the goodies asap.
                     # find starting channel for spectrum
                     ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
@@ -303,10 +312,10 @@ cdef class Reader(object):
                             # rdma_read_status requires GIL for now
 #                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
                             if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].values is not NULL):
-                                if not spec % specbreak:
-                                    readfrac = 100.*spec * 1./self.nspec
+                                if not spec_good % specbreak:
+                                    readfrac = 100.*spec_good * 1./self.nspec
                                     rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec, readfrac, rtfrac)
+                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec_good, readfrac, rtfrac)
 
                                 msg_time = msg[0].data[i].timestamp * 1./1000000000
                                 iind0 = mindiffq(timearr, msg_time, self.ni, self.inttime_micros/1000000)
@@ -314,26 +323,33 @@ cdef class Reader(object):
 #                                printf('%f %d %f %f\t', msg_time, iind0, timearr[iind0], msg_time-timearr[iind0])
 
                                 if data[iind0, bind0, ch0, pind0] != 0j:
-                                    printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
+                                    #printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
+                                    spec_dup += 1
+                                else:
+                                    spec_good += 1
 
                                 for j in range(self.nchan):
                                     data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
 
-                                spec += 1
                                 if iind0 >= self.ni-lastints:
                                     speclast += 1
                             else:
-                                printf('Invalid spectrum\t')
+                                #printf('Invalid spectrum\t')
+                                spec_invalid += 1
 
                     elif bind0 == -1:
-                        printf('bind not found for (%d, %d)\t', info.stations[0], info.stations[1])
+                        #printf('bind not found for (%d, %d)\t', info.stations[0], info.stations[1])
+                        spec_badbl += msg[0].content.spectra.num_spectra
                     elif ch0 == -1:
-                        printf('ch0 not found for (bbid, spwid) = (%d, %d)\t', info.baseband_id, info.spectral_window_index)
+                        #printf('ch0 not found for (bbid, spwid) = (%d, %d)\t', info.baseband_id, info.spectral_window_index)
+                        spec_badch += msg[0].content.spectra.num_spectra
                     elif pind0 == -1:
-                        printf('pind not found for %d\t', info.polarization_product_id)
+                        #printf('pind not found for %d\t', info.polarization_product_id)
+                        spec_badpol += msg[0].content.spectra.num_spectra
 
                 else:
-                    printf('Unexpected message type: %u\t', msg[0].typ)
+                    #printf('Unexpected message type: %u\t', msg[0].typ)
+                    msgcnt[int(msg[0].typ)] += 1
 
                 vysmaw_message_unref(msg)
 
@@ -348,9 +364,21 @@ cdef class Reader(object):
             if msg[0].typ is VYSMAW_MESSAGE_END:
                 print('Received VYSMAW_MESSAGE_END. Exiting...')
 
-        print('{0}/{1} spectra received'.format(spec, self.nspec))
+        # Report stats
+        #print('{0}/{1} spectra received'.format(spec, self.nspec))
+        print('Total spectra Exepcted: {0}'.format(self.nspec))
+        print('              Received: {0} ({1:.3f}%)'.format(spec,100.0*float(spec)/float(self.nspec)))
+        print('          Good spectra: {0} ({1:.3f}%)'.format(spec_good,100.0*float(spec_good)/float(self.nspec)))
+        print('            Duplicates: {0}'.format(spec_dup))
+        print('               Invalid: {0}'.format(spec_invalid))
+        print('                Bad bl: {0}'.format(spec_badbl))
+        print('              Bad chan: {0}'.format(spec_badch))
+        print('               Bad pol: {0}'.format(spec_badpol))
+        for i in range(len(message_types)):
+            if msgcnt[i]>0:
+                print('vysmaw message type {0}: {1}'.format(message_types[i], msgcnt[i]))
 
-        if spec > 0:
+        if spec_good>0:
             return np.asarray(data)
         else:
             return None
