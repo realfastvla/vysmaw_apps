@@ -241,19 +241,19 @@ cdef class Reader(object):
         cdef unsigned long specbreak = int(0.2*self.nspec)
         cdef int bind0
         cdef int pind0
-        cdef unsigned int iind
-        cdef unsigned int iind0
+        cdef int iind0
         cdef int ch0
         cdef int i = 0
         cdef int j = 0
-        cdef int[:, ::1] blarr = np.zeros(shape=(self.nbl, 2), dtype=np.int32)
-        cdef double[::1] timearr = np.zeros(shape=(self.ni,))
+        cdef unsigned int max_nant = 29
+        cdef int[:, ::1] blarr = np.zeros(shape=(max_nant,max_nant), dtype=np.int32)
         cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
         cdef unsigned long spec = 0
         cdef unsigned long spec_good = 0
         cdef unsigned long spec_dup = 0
+        cdef unsigned long spec_out = 0
         cdef unsigned long spec_invalid = 0
         cdef unsigned long spec_badbl = 0
         cdef unsigned long spec_badch = 0
@@ -267,14 +267,14 @@ cdef class Reader(object):
 
         print('Expecting {0} ints, {1} bls, and {2} total spectra of length {3} between times {4} and {5} (timeout {6:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.nchan, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 
-        # fill arrays
-        for iind in range(self.ni):
-            timearr[iind] = self.t0+(self.inttime_micros/1000000)*(iind+0.5)
+        for ind1 in range(max_nant):
+            for ind0 in range(max_nant):
+                blarr[ind0,ind1] = -1
 
+        i = 0
         for ind1 in range(self.nant):
             for ind0 in range(ind1):
-                blarr[i, 0] = self.antlist[ind0]
-                blarr[i, 1] = self.antlist[ind1]
+                blarr[self.antlist[ind0],self.antlist[ind1]] = i
                 i += 1
 
         cdef long starttime = time(NULL)
@@ -303,7 +303,7 @@ cdef class Reader(object):
                     pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
                     # find bl i blarr
-                    bind0 = findblind(info.stations[0], info.stations[1], blarr, self.nbl)
+                    bind0 = blarr[info.stations[0],info.stations[1]]
 
                     # put data in numpy array, if an index exists
                     if bind0 > -1 and ch0 > -1 and pind0 > -1:
@@ -318,21 +318,21 @@ cdef class Reader(object):
                                     printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec_good, readfrac, rtfrac)
 
                                 msg_time = msg[0].data[i].timestamp * 1./1000000000
-                                iind0 = mindiffq(timearr, msg_time, self.ni, self.inttime_micros/1000000)
-#                                iind0 = mindiff(timearr, msg_time, self.ni)  # original seems to find time boundaries
-#                                printf('%f %d %f %f\t', msg_time, iind0, timearr[iind0], msg_time-timearr[iind0])
+                                iind0 = (int)((msg_time-self.t0)/(self.inttime_micros*1e-6))
 
-                                if data[iind0, bind0, ch0, pind0] != 0j:
+                                if iind0<0 or iind0>=self.ni:
+                                    # Out of time range
+                                    spec_out += 1
+                                elif data[iind0, bind0, ch0, pind0] != 0j:
                                     #printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
                                     spec_dup += 1
                                 else:
                                     spec_good += 1
+                                    for j in range(self.nchan):
+                                        data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
+                                    if iind0 >= self.ni-lastints:
+                                        speclast += 1
 
-                                for j in range(self.nchan):
-                                    data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
-
-                                if iind0 >= self.ni-lastints:
-                                    speclast += 1
                             else:
                                 #printf('Invalid spectrum\t')
                                 spec_invalid += 1
@@ -370,6 +370,7 @@ cdef class Reader(object):
         print('              Received: {0} ({1:.3f}%)'.format(spec,100.0*float(spec)/float(self.nspec)))
         print('          Good spectra: {0} ({1:.3f}%)'.format(spec_good,100.0*float(spec_good)/float(self.nspec)))
         print('            Duplicates: {0}'.format(spec_dup))
+        print('     Out of time range: {0}'.format(spec_out))
         print('               Invalid: {0}'.format(spec_invalid))
         print('                Bad bl: {0}'.format(spec_badbl))
         print('              Bad chan: {0}'.format(spec_badch))
