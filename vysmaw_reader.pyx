@@ -98,6 +98,7 @@ cdef class Reader(object):
     cdef cnp.float64_t t0
     cdef cnp.float64_t t1
     cdef cnp.float64_t timeout
+    cdef cnp.float64_t data_timeout
     cdef Configuration config
     cdef int offset
     cdef Consumer consumer
@@ -120,11 +121,13 @@ cdef class Reader(object):
 
     def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
                   int[:,::1] bbsplist, bool polauto, float inttime_micros=1000000, int nchan=32,
-                  str cfile=None, cnp.float64_t timeout=10, int offset=4):
+                  str cfile=None, cnp.float64_t timeout=10, int offset=4, 
+                  cnp.float64_t data_timeout=3.0):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
             timeout is wait time factor that scales time as timeout*(t1-t0).
+            data_timeout is wait time since last spectrum in seconds.
             offset is time offset to expect vys data from t0 and t1.
             antlist is list of antenna numbers (1-based)
             bbsplist is array of [bbid, spwid] and where to place them.
@@ -136,6 +139,7 @@ cdef class Reader(object):
         self.t0 = t0
         self.t1 = t1
         self.timeout = timeout
+        self.data_timeout = data_timeout
         self.antlist = antlist
         self.bbsplist = bbsplist
         self.polauto = polauto
@@ -237,7 +241,7 @@ cdef class Reader(object):
         cdef Consumer c0 = self.consumer
         cdef vysmaw_message_queue queue0 = c0.queue()
         cdef vysmaw_data_info info
-        cdef double msg_time
+        cdef double msg_time = 0.0
         cdef unsigned long specbreak = int(0.2*self.nspec)
         cdef int bind0
         cdef int pind0
@@ -261,6 +265,7 @@ cdef class Reader(object):
         cdef int[::1] msgcnt = np.zeros(shape=(len(message_types),),dtype=np.int32)
         cdef float readfrac
         cdef float rtfrac
+        cdef float latency
         cdef unsigned long speclast = 0
         cdef unsigned int lastints = min(self.ni, 10) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
@@ -278,18 +283,17 @@ cdef class Reader(object):
                 i += 1
 
         cdef long starttime = time(NULL)
-        self.currenttime = time(NULL)
+        cdef long lasttime = 0
 
-        # old way: count until total number of spec is received or timeout elapses
-#        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (spec < self.nspec) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
-        # new way: count spec only in last integration
-        while ((msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END)) and (speclast < lastints*self.nspec/self.ni) and (self.currenttime - starttime < self.timeout*(self.t1-self.t0) + self.offset):
+        while (msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
 #            with nogil:
 #            if True:
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+            self.currenttime = time(NULL)
 
             if msg is not NULL:
                 self.lastmsgtyp = msg[0].typ
+                lasttime = self.currenttime
                 if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
                     info = msg[0].content.spectra.info
 
@@ -312,13 +316,15 @@ cdef class Reader(object):
                             # rdma_read_status requires GIL for now
 #                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
                             if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].values is not NULL):
-                                if not spec_good % specbreak:
-                                    readfrac = 100.*spec_good * 1./self.nspec
-                                    rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime\n', spec_good, readfrac, rtfrac)
 
                                 msg_time = msg[0].data[i].timestamp * 1./1000000000
                                 iind0 = (int)((msg_time-self.t0)/(self.inttime_micros*1e-6))
+
+                                if not spec_good % specbreak:
+                                    readfrac = 100.*spec_good * 1./self.nspec
+                                    rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
+                                    latency = self.currenttime - msg_time
+                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime (latency=%.3fs)\n', spec_good, readfrac, rtfrac, latency)
 
                                 if iind0<0 or iind0>=self.ni:
                                     # Out of time range
@@ -353,16 +359,19 @@ cdef class Reader(object):
 
                 vysmaw_message_unref(msg)
 
-            self.currenttime = time(NULL)
-
-        # after while loop, check reason for ending
-        if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
-            print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
-        elif speclast == lastints*self.nspec/self.ni:
-            print('Read all spectra for last {0} integrations. Exiting...'.format(lastints))
-        elif msg is not NULL:
-            if msg[0].typ is VYSMAW_MESSAGE_END:
+            # Check for a ending condition
+            if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
+                print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
+                break
+            elif (lasttime>0) and (self.currenttime-lasttime>self.data_timeout):
+                print('No data for last {0:.1f}s. Exiting...'.format(self.data_timeout))
+                break
+            elif speclast == lastints*self.nspec/self.ni:
+                print('Read all spectra for last {0} integrations. Exiting...'.format(lastints))
+                break
+            elif self.lastmsgtyp is VYSMAW_MESSAGE_END:
                 print('Received VYSMAW_MESSAGE_END. Exiting...')
+                break
 
         # Report stats
         #print('{0}/{1} spectra received'.format(spec, self.nspec))
