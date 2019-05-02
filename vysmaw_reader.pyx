@@ -49,8 +49,8 @@ message_types = dict(zip([VYSMAW_MESSAGE_SPECTRA, VYSMAW_MESSAGE_QUEUE_ALERT,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx, uint8_t bb_id, uint8_t spw,
-             uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
-             void *user_data, bool *pass_filter) nogil:
+                      uint8_t pol, const vys_spectrum_info *infos, uint8_t num_infos,
+                      void *user_data, bool *pass_filter) nogil:
 
     cdef cnp.float64_t *select = <cnp.float64_t *>user_data
     cdef unsigned int i
@@ -250,7 +250,7 @@ cdef class Reader(object):
         cdef int i = 0
         cdef int j = 0
         cdef unsigned int max_nant = 29
-        cdef int[:, ::1] blarr = np.zeros(shape=(max_nant,max_nant), dtype=np.int32)
+        cdef int[:, ::1] blarr = np.zeros(shape=(max_nant, max_nant), dtype=np.int32)
         cdef cnp.complex64_t[:, :, :, ::1] data = np.zeros(shape=(self.ni, self.nbl, self.nchantot, self.npol), dtype=np.complex64)
 
         # initialize
@@ -262,7 +262,7 @@ cdef class Reader(object):
         cdef unsigned long spec_badbl = 0
         cdef unsigned long spec_badch = 0
         cdef unsigned long spec_badpol = 0
-        cdef int[::1] msgcnt = np.zeros(shape=(len(message_types),),dtype=np.int32)
+        cdef int[::1] msgcnt = np.zeros(shape=(len(message_types),), dtype=np.int32)
         cdef float readfrac
         cdef float rtfrac
         cdef float latency
@@ -274,90 +274,86 @@ cdef class Reader(object):
 
         for ind1 in range(max_nant):
             for ind0 in range(max_nant):
-                blarr[ind0,ind1] = -1
+                blarr[ind0, ind1] = -1
 
         i = 0
         for ind1 in range(self.nant):
             for ind0 in range(ind1):
-                blarr[self.antlist[ind0],self.antlist[ind1]] = i
+                blarr[self.antlist[ind0], self.antlist[ind1]] = i
                 i += 1
 
         cdef long starttime = time(NULL)
         cdef long lasttime = 0
 
         while (msg is NULL) or (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
-#            with nogil:
-#            if True:
-            msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
-            self.currenttime = time(NULL)
+            with nogil:
+                msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
+                self.currenttime = time(NULL)
 
-            if msg is not NULL:
-                self.lastmsgtyp = msg[0].typ
-                lasttime = self.currenttime
-                if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
-                    info = msg[0].content.spectra.info
+                if msg is not NULL:
+                    self.lastmsgtyp = msg[0].typ
+                    lasttime = self.currenttime
+                    if msg[0].typ is VYSMAW_MESSAGE_SPECTRA:
+                        info = msg[0].content.spectra.info
+                        spec += msg[0].content.spectra.num_spectra
 
-                    spec += msg[0].content.spectra.num_spectra
+                        # get the goodies asap.
+                        # find starting channel for spectrum
+                        ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
 
-                    # get the goodies asap.
-                    # find starting channel for spectrum
-                    ch0 = findch0(info.baseband_id, info.spectral_window_index, self.bbsplist, self.nchan, self.nspw)
+                        # find pol in pollist
+                        pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
 
-                    # find pol in pollist
-                    pind0 = findpolind(info.polarization_product_id, self.pollist, self.npol)
+                        # find bl i blarr
+                        bind0 = blarr[info.stations[0], info.stations[1]]
 
-                    # find bl i blarr
-                    bind0 = blarr[info.stations[0],info.stations[1]]
-
-                    # put data in numpy array, if an index exists
-                    if bind0 > -1 and ch0 > -1 and pind0 > -1:
-                        specpermsg = msg[0].content.spectra.num_spectra
-                        for i in range(specpermsg):
-                            # rdma_read_status requires GIL for now
+                        # put data in numpy array, if an index exists
+                        if bind0 > -1 and ch0 > -1 and pind0 > -1:
+                            specpermsg = msg[0].content.spectra.num_spectra
+                            for i in range(specpermsg):
+                                # rdma_read_status requires GIL for now
 #                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
-                            if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].values is not NULL):
+                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].values is not NULL):
+                                    msg_time = msg[0].data[i].timestamp * 1./1000000000
+                                    iind0 = (int)((msg_time-self.t0)/(self.inttime_micros*1e-6))
 
-                                msg_time = msg[0].data[i].timestamp * 1./1000000000
-                                iind0 = (int)((msg_time-self.t0)/(self.inttime_micros*1e-6))
+                                    if not spec_good % specbreak:
+                                        readfrac = 100.*spec_good * 1./self.nspec
+                                        rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
+                                        latency = self.currenttime - msg_time
+                                        printf('At spec %lu: %1.0f%% of data in %1.1fx realtime (latency=%.3fs)\n', spec_good, readfrac, rtfrac, latency)
 
-                                if not spec_good % specbreak:
-                                    readfrac = 100.*spec_good * 1./self.nspec
-                                    rtfrac = (self.currenttime-starttime)/(self.t1-self.t0)
-                                    latency = self.currenttime - msg_time
-                                    printf('At spec %lu: %1.0f%% of data in %1.1fx realtime (latency=%.3fs)\n', spec_good, readfrac, rtfrac, latency)
-
-                                if iind0<0 or iind0>=self.ni:
-                                    # Out of time range
-                                    spec_out += 1
-                                elif data[iind0, bind0, ch0, pind0] != 0j:
-                                    #printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
-                                    spec_dup += 1
+                                    if iind0<0 or iind0>=self.ni:
+                                        # Out of time range
+                                        spec_out += 1
+                                    elif data[iind0, bind0, ch0, pind0] != 0j:
+                                        #printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
+                                        spec_dup += 1
+                                    else:
+                                        spec_good += 1
+                                        for j in range(self.nchan):
+                                            data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
+                                        if iind0 >= self.ni-lastints:
+                                            speclast += 1
                                 else:
-                                    spec_good += 1
-                                    for j in range(self.nchan):
-                                        data[iind0, bind0, ch0+j, pind0] = msg[0].data[i].values[j]
-                                    if iind0 >= self.ni-lastints:
-                                        speclast += 1
+                                    #printf('Invalid spectrum\t')
+                                    spec_invalid += 1
 
-                            else:
-                                #printf('Invalid spectrum\t')
-                                spec_invalid += 1
+                        elif bind0 == -1:
+                            #printf('bind not found for (%d, %d)\t', info.stations[0], info.stations[1])
+                            spec_badbl += msg[0].content.spectra.num_spectra
+                        elif ch0 == -1:
+                            #printf('ch0 not found for (bbid, spwid) = (%d, %d)\t', info.baseband_id, info.spectral_window_index)
+                            spec_badch += msg[0].content.spectra.num_spectra
+                        elif pind0 == -1:
+                            #printf('pind not found for %d\t', info.polarization_product_id)
+                            spec_badpol += msg[0].content.spectra.num_spectra
 
-                    elif bind0 == -1:
-                        #printf('bind not found for (%d, %d)\t', info.stations[0], info.stations[1])
-                        spec_badbl += msg[0].content.spectra.num_spectra
-                    elif ch0 == -1:
-                        #printf('ch0 not found for (bbid, spwid) = (%d, %d)\t', info.baseband_id, info.spectral_window_index)
-                        spec_badch += msg[0].content.spectra.num_spectra
-                    elif pind0 == -1:
-                        #printf('pind not found for %d\t', info.polarization_product_id)
-                        spec_badpol += msg[0].content.spectra.num_spectra
+                    else:
+#                        msgcnt[int(msg[0].typ)] += 1
+                        msgcnt[int(self.lastmsgtyp)] += 1
 
-                else:
-                    #printf('Unexpected message type: %u\t', msg[0].typ)
-                    msgcnt[int(msg[0].typ)] += 1
-
-                vysmaw_message_unref(msg)
+                    vysmaw_message_unref(msg)
 
             # Check for a ending condition
             if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
@@ -385,10 +381,10 @@ cdef class Reader(object):
         print('              Bad chan: {0}'.format(spec_badch))
         print('               Bad pol: {0}'.format(spec_badpol))
         for i in range(len(message_types)):
-            if msgcnt[i]>0:
+            if msgcnt[i] > 0:
                 print('vysmaw message type {0}: {1}'.format(message_types[i], msgcnt[i]))
 
-        if spec_good>0:
+        if spec_good > 0:
             return np.asarray(data)
         else:
             return None
@@ -428,42 +424,6 @@ cdef class Reader(object):
 @cython.initializedcheck(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef int mindiff(double[:] arr, double ref, int ni) nogil:
-    cdef int i
-    cdef int mini = 0
-    cdef double diff = fabs(arr[mini]-ref)
-    cdef double minimum = diff
-
-    for i in range(1, ni):
-        diff = fabs(arr[i]-ref)
-        if minimum > diff:
-            minimum = diff
-            mini = i
-
-    return mini
-
-
-@cython.initializedcheck(False)
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef int mindiffq(double[:] arr, double ref, int ni, double scale) nogil:
-    cdef int i
-    cdef int mini = 0
-    cdef double diff = fabs(floor((arr[mini]-ref)/scale))
-    cdef double minimum = diff
-
-    for i in range(1, ni):
-        diff = fabs(floor((arr[i]-ref)/scale))
-        if minimum > diff:
-            minimum = diff
-            mini = i
-
-    return mini
-
-
-@cython.initializedcheck(False)
-@cython.boundscheck(False)
-@cython.wraparound(False)
 cdef int findpolind(int pol, long[::1] polinds, int npol) nogil:
     cdef int ind
     cdef int ind1 = -1
@@ -474,25 +434,6 @@ cdef int findpolind(int pol, long[::1] polinds, int npol) nogil:
             break
 
     return ind1
-
-
-@cython.initializedcheck(False)
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef int findblind(int st0, int st1, int[:, ::1] blarr, int nbl) nogil:
-    cdef int bind0 = -1
-    cdef int bind
-    cdef int bl0
-    cdef int bl1
-
-    for bind in range(nbl):
-        bl0 = blarr[bind, 0]
-        bl1 = blarr[bind, 1]
-        if (st0 == bl0) and (st1 == bl1):
-            bind0 = bind
-            break
-
-    return bind0
 
 
 @cython.initializedcheck(False)
