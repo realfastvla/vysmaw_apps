@@ -27,6 +27,9 @@ cdef extern from "math.h" nogil:
 cdef extern from "math.h" nogil:
     int floor(double arg)
 
+cdef extern from "math.h" nogil:
+    int ceil(double arg)
+
 # remove for latest vysmaw
 cdef extern from "vysmaw.h" nogil:
     void vysmaw_message_unref(vysmaw_message *arg)
@@ -110,7 +113,7 @@ cdef class Reader(object):
     cdef int[:, ::1] bbsplist
     cdef long[::1] pollist
     cdef bool polauto
-    cdef unsigned int ni
+    cdef int ni
     cdef unsigned int nant
     cdef unsigned int nbl
     cdef unsigned int nspw
@@ -148,7 +151,7 @@ cdef class Reader(object):
         self.offset = offset  # (integer) seconds early to open handle
 
         # set reference values
-        self.ni = round(1000000*(self.t1-self.t0)/self.inttime_micros)
+        self.ni = ceil((self.t1-self.t0)/(self.inttime_micros*1e-6))
         self.nant = len(self.antlist)
         self.nbl = self.nant*(self.nant-1)/2  # cross hands only
         self.nspw = len(self.bbsplist)
@@ -315,7 +318,7 @@ cdef class Reader(object):
 #                                if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].rdma_read_status == b""):
                                 if (msg[0].data[i].failed_verification is False) and (msg[0].data[i].values is not NULL):
                                     msg_time = msg[0].data[i].timestamp * 1./1000000000
-                                    iind0 = (int)((msg_time-self.t0)/(self.inttime_micros*1e-6))
+                                    iind0 = round((msg_time-self.t0)/(self.inttime_micros*1e-6))
 
                                     if not spec_good % specbreak:
                                         readfrac = 100.*spec_good * 1./self.nspec
@@ -327,6 +330,8 @@ cdef class Reader(object):
                                         # Out of time range
                                         spec_out += 1
                                     elif data[iind0, bind0, ch0, pind0] != 0j:
+                                        if bind0 == 0 and ch0 == 0 and pind0 == 0:
+                                            printf('%d %f\t', iind0, msg_time)
                                         #printf('Already set index: %d %d %d %d\t', iind0, bind0, ch0, pind0)
                                         spec_dup += 1
                                     else:
