@@ -21,15 +21,6 @@ cdef extern from "unistd.h" nogil:
 cdef extern from "math.h" nogil:
     int round(double arg)
 
-cdef extern from "math.h" nogil:
-    double fabs(double arg)
-
-cdef extern from "math.h" nogil:
-    int floor(double arg)
-
-cdef extern from "math.h" nogil:
-    int ceil(double arg)
-
 # remove for latest vysmaw
 cdef extern from "vysmaw.h" nogil:
     void vysmaw_message_unref(vysmaw_message *arg)
@@ -151,7 +142,7 @@ cdef class Reader(object):
         self.offset = offset  # (integer) seconds early to open handle
 
         # set reference values
-        self.ni = ceil((self.t1-self.t0)/(self.inttime_micros*1e-6))
+        self.ni = round((self.t1-self.t0)/(self.inttime_micros*1e-6))
         self.nant = len(self.antlist)
         self.nbl = self.nant*(self.nant-1)/2  # cross hands only
         self.nspw = len(self.bbsplist)
