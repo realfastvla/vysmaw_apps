@@ -11,6 +11,9 @@ cimport numpy as cnp
 from vysmaw import cy_vysmaw
 from vysmaw.cy_vysmaw cimport *
 
+import logging
+logger = logging.getLogger(__name__)
+
 cdef extern from "time.h" nogil:
     ctypedef int time_tt
     time_tt time(time_t*)
@@ -229,7 +232,7 @@ cdef class Reader(object):
         """
 
         if self.handle is None:
-            print("vysmaw handle not set. Be sure to use in 'with' context.")
+            logger.error("vysmaw handle not set. Be sure to use in 'with' context.")
             raise SystemExit
 
         cdef Consumer c0 = self.consumer
@@ -264,7 +267,7 @@ cdef class Reader(object):
         cdef unsigned int lastints = min(self.ni, 10) # count speclast in last ints
         cdef vysmaw_message *msg = NULL
 
-        print('Expecting {0} ints, {1} bls, and {2} total spectra of length {3} between times {4} and {5} (timeout {6:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.nchan, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
+        logger.info('Expecting {0} ints, {1} bls, and {2} total spectra of length {3} between times {4} and {5} (timeout {6:.1f} s)'.format(self.ni, self.nbl, self.nspec, self.nchan, self.t0, self.t1, (self.t1-self.t0)*self.timeout))
 
         for ind1 in range(max_nant):
             for ind0 in range(max_nant):
@@ -353,32 +356,32 @@ cdef class Reader(object):
 
             # Check for a ending condition
             if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
-                print('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
+                logger.info('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
                 break
             elif (lasttime>0) and (self.currenttime-lasttime>self.data_timeout):
-                print('No data for last {0:.1f}s. Exiting...'.format(self.data_timeout))
+                logger.info('No data for last {0:.1f}s. Exiting...'.format(self.data_timeout))
                 break
             elif speclast == lastints*self.nspec/self.ni:
-                print('Read all spectra for last {0} integrations. Exiting...'.format(lastints))
+                logger.info('Read all spectra for last {0} integrations. Exiting...'.format(lastints))
                 break
             elif self.lastmsgtyp is VYSMAW_MESSAGE_END:
-                print('Received VYSMAW_MESSAGE_END. Exiting...')
+                logger.info('Received VYSMAW_MESSAGE_END. Exiting...')
                 break
 
         # Report stats
         #print('{0}/{1} spectra received'.format(spec, self.nspec))
-        print('Total spectra Exepcted: {0}'.format(self.nspec))
-        print('              Received: {0} ({1:.3f}%)'.format(spec,100.0*float(spec)/float(self.nspec)))
-        print('          Good spectra: {0} ({1:.3f}%)'.format(spec_good,100.0*float(spec_good)/float(self.nspec)))
-        print('            Duplicates: {0}'.format(spec_dup))
-        print('     Out of time range: {0}'.format(spec_out))
-        print('               Invalid: {0}'.format(spec_invalid))
-        print('                Bad bl: {0}'.format(spec_badbl))
-        print('              Bad chan: {0}'.format(spec_badch))
-        print('               Bad pol: {0}'.format(spec_badpol))
+        logger.info('Total spectra Exepcted: {0}'.format(self.nspec))
+        logger.info('              Received: {0} ({1:.3f}%)'.format(spec,100.0*float(spec)/float(self.nspec)))
+        logger.info('          Good spectra: {0} ({1:.3f}%)'.format(spec_good,100.0*float(spec_good)/float(self.nspec)))
+        logger.info('            Duplicates: {0}'.format(spec_dup))
+        logger.info('     Out of time range: {0}'.format(spec_out))
+        logger.info('               Invalid: {0}'.format(spec_invalid))
+        logger.info('                Bad bl: {0}'.format(spec_badbl))
+        logger.info('              Bad chan: {0}'.format(spec_badch))
+        logger.info('               Bad pol: {0}'.format(spec_badpol))
         for i in range(len(message_types)):
             if msgcnt[i] > 0:
-                print('vysmaw message type {0}: {1}'.format(message_types[i], msgcnt[i]))
+                logger.info('vysmaw message type {0}: {1}'.format(message_types[i], msgcnt[i]))
 
         if spec_good > 0:
             return np.asarray(data)
@@ -396,7 +399,7 @@ cdef class Reader(object):
         msgcnt = dict(zip(message_types.keys(), [0]*len(message_types)))
 
         if self.handle is not None:
-            print('Shutting vysmaw down...')
+            logger.info('Shutting vysmaw down...')
             self.handle.shutdown()
 
         nulls = 0
@@ -412,9 +415,9 @@ cdef class Reader(object):
 
 #            PyErr_CheckSignals()
 
-        print('Remaining messages in queue: {0}'.format(msgcnt))
+        logger.info('Remaining messages in queue: {0}'.format(msgcnt))
         if nulls:
-            print('and {0} NULLs'.format(nulls))
+            logger.info('and {0} NULLs'.format(nulls))
 
 
 @cython.initializedcheck(False)
