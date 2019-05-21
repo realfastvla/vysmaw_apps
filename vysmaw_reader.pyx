@@ -256,6 +256,7 @@ cdef class Reader(object):
         cdef unsigned long spec_dup = 0
         cdef unsigned long spec_out = 0
         cdef unsigned long spec_invalid = 0
+        cdef unsigned long spec_notfinite = 0
         cdef unsigned long spec_badbl = 0
         cdef unsigned long spec_badch = 0
         cdef unsigned long spec_badpol = 0
@@ -368,6 +369,15 @@ cdef class Reader(object):
                 logger.info('Received VYSMAW_MESSAGE_END. Exiting...')
                 break
 
+        isfinite = np.isfinite(data)
+        for i in range(self.ni):
+            for j in range(self.nbl):
+                for k in range(self.npol):
+                    if not np.all(isfinite[i, j, :, k]):
+                        for l in range(self.nchan):
+                            data[i,j,l,k] = 0j
+                        spec_notfinite += 1
+
         # Report stats
         #print('{0}/{1} spectra received'.format(spec, self.nspec))
         logger.info('Total spectra Exepcted: {0}'.format(self.nspec))
@@ -376,6 +386,7 @@ cdef class Reader(object):
         logger.info('            Duplicates: {0}'.format(spec_dup))
         logger.info('     Out of time range: {0}'.format(spec_out))
         logger.info('               Invalid: {0}'.format(spec_invalid))
+        logger.info('             NaNs/Infs: {0}'.format(spec_notfinite))
         logger.info('                Bad bl: {0}'.format(spec_badbl))
         logger.info('              Bad chan: {0}'.format(spec_badch))
         logger.info('               Bad pol: {0}'.format(spec_badpol))
