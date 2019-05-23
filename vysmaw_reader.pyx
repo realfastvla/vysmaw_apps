@@ -57,6 +57,8 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
 
     for i in range(num_infos):
         ts = infos[i].timestamp * 1./1000000000
+        if i == 0:
+            printf('callback parsing infos for ts %f', ts)
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
@@ -79,6 +81,8 @@ cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb
 
     for i in range(num_infos):
         ts = infos[i].timestamp * 1./1000000000
+        if i == 0:
+            printf('callback parsing infos for ts %f', ts)
         if (t0 <= ts) and (ts < t1) and ((pol == 0) or (pol == 3)) and (stns[0] != stns[1]):
             pass_filter[i] = True
         else:
