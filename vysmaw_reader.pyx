@@ -57,8 +57,9 @@ cdef void filter_time(const char *config_id, const uint8_t *stns, uint8_t bb_idx
 
     for i in range(num_infos):
         ts = infos[i].timestamp * 1./1000000000
-        if i == 0 and pol == 0 and bb_id == 0 and bb_idx == 0 and spw == 0 and stns[0] == 1 and stns[1] == 2:
-            printf('callback parsing infos for ts %f', ts)
+        #if i == 0 and pol == 0 and bb_id == 0 and bb_idx == 0 and spw == 0 and stns[0] == 1 and stns[1] == 2:
+        #    printf('callback parsing infos for ts %f', ts)
+        select[2] += 1.0 # Count num callback
         if t0 <= ts and ts < t1:
             pass_filter[i] = True
         else:
@@ -81,8 +82,9 @@ cdef void filter_timeauto(const char *config_id, const uint8_t *stns, uint8_t bb
 
     for i in range(num_infos):
         ts = infos[i].timestamp * 1./1000000000
-        if i == 0 and pol == 0 and bb_id == 0 and bb_idx == 0 and spw == 0 and stns[0] == 1 and stns[1] == 2:
-            printf('callback parsing infos for ts %f', ts)
+        #if i == 0 and pol == 0 and bb_id == 0 and bb_idx == 0 and spw == 0 and stns[0] == 1 and stns[1] == 2:
+        #    printf('callback parsing infos for ts %f', ts)
+        select[2] += 1.0 # Count num callback
         if (t0 <= ts) and (ts < t1) and ((pol == 0) or (pol == 3)) and (stns[0] != stns[1]):
             pass_filter[i] = True
         else:
@@ -119,6 +121,7 @@ cdef class Reader(object):
     cdef unsigned int nchantot
     cdef unsigned long nspec  # number of spectra expected
     cdef vysmaw_message_type lastmsgtyp
+    cdef double[3] vysmaw_user_data 
 
     def __cinit__(self, cnp.float64_t t0, cnp.float64_t t1, int[::1] antlist,
                   int[:,::1] bbsplist, bool polauto, float inttime_micros=1000000, int nchan=32,
@@ -147,6 +150,11 @@ cdef class Reader(object):
         self.nchan = nchan
         self.inttime_micros = inttime_micros
         self.offset = offset  # (integer) seconds early to open handle
+
+        # These get passed to the vysmaw filter (callback) func
+        self.vysmaw_user_data[0] = t0
+        self.vysmaw_user_data[1] = t1
+        self.vysmaw_user_data[2] = 0.0 # This will be count of # of callbacks
 
         # set reference values
         self.ni = round((self.t1-self.t0)/(self.inttime_micros*1e-6))
@@ -216,8 +224,8 @@ cdef class Reader(object):
 #        self.handle, self.consumer = self.config.start(f, u)
 #        free(u)
 
-        cdef double[::1] filterarr_memview
-        filterarr_memview = np.ascontiguousarray([self.t0, self.t1])
+        #cdef double[::1] filterarr_memview
+        #filterarr_memview = np.ascontiguousarray([self.t0, self.t1])
 
         if self.polauto:
             f = filter_timeauto
@@ -225,7 +233,8 @@ cdef class Reader(object):
             f = filter_time
 
         printf('Creating vysmaw handle and consumer\n')
-        self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
+        #self.handle, self.consumer = self.config.start(f, &filterarr_memview[0])
+        self.handle, self.consumer = self.config.start(f, self.vysmaw_user_data)
 
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
@@ -433,6 +442,8 @@ cdef class Reader(object):
         logger.info('Remaining messages in queue: {0}'.format(msgcnt))
         if nulls:
             logger.info('and {0} NULLs'.format(nulls))
+
+        logger.info('Recorded {0} vysmaw filter callbacks'.format(int(self.vysmaw_user_data[2])))
 
 
 @cython.initializedcheck(False)
