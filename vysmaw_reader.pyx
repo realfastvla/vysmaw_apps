@@ -360,7 +360,7 @@ cdef class Reader(object):
                     vysmaw_message_unref(msg)
 
             # Check for a ending condition
-            if (spec_good == 0) and (self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset):
+            if (spec == 0) and (self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset):
                 logger.info('No data in timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
                 break
             elif (lasttime>0) and (self.currenttime-lasttime>self.data_timeout):
