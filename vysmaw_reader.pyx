@@ -127,7 +127,7 @@ cdef class Reader(object):
         """ Open reader with time filter from t0 to t1 in unix seconds
             If t0/t1 left at default values of 0, then all times accepted.
             cfile is the vys/vysmaw configuration file.
-            timeout is wait time factor that scales time as timeout*(t1-t0).
+            timeout is no-data wait factor that scales time as timeout*(t1-t0).
             data_timeout is wait time since last spectrum in seconds.
             offset is time offset to expect vys data from t0 and t1.
             antlist is list of antenna numbers (1-based)
@@ -360,8 +360,8 @@ cdef class Reader(object):
                     vysmaw_message_unref(msg)
 
             # Check for a ending condition
-            if self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset:
-                logger.info('Reached timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
+            if (spec_good == 0) and (self.currenttime-starttime >= self.timeout*(self.t1-self.t0) + self.offset):
+                logger.info('No data in timeout of {0:.1f}s. Exiting...'.format(self.timeout*(self.t1-self.t0)))
                 break
             elif (lasttime>0) and (self.currenttime-lasttime>self.data_timeout):
                 logger.info('No data for last {0:.1f}s. Exiting...'.format(self.data_timeout))
