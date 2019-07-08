@@ -427,7 +427,7 @@ cdef class Reader(object):
             self.handle.shutdown()
 
         nulls = 0
-        while (nulls < 20) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
+        while (nulls < 10) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
@@ -440,6 +440,9 @@ cdef class Reader(object):
 #            PyErr_CheckSignals()
 
         logger.info('Remaining messages in queue: {0}'.format(msgcnt))
+        if msgcnt[VYSMAW_MESSAGE_END] == 0:
+            logger.warning('No VYSMAW_MESSAGE_END received. Process entering bad state')
+
         if nulls:
             logger.info('and {0} NULLs'.format(nulls))
 
