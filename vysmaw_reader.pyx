@@ -365,6 +365,9 @@ cdef class Reader(object):
                     else:
 #                        msgcnt[int(msg[0].typ)] += 1
                         msgcnt[int(self.lastmsgtyp)] += 1
+                        if self.lastmsgtyp is VYSMAW_MESSAGE_QUEUE_ALERT:
+                            printf("VYSMAW_MESSAGE_QUEUE_ALERT: queue_depth=%d\n",
+                                    msg[0].content.queue_depth)
 
                     vysmaw_message_unref(msg)
 
@@ -427,7 +430,7 @@ cdef class Reader(object):
             self.handle.shutdown()
 
         nulls = 0
-        while (nulls < 10) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
+        while (nulls < 20) and (self.lastmsgtyp is not VYSMAW_MESSAGE_END):
             msg = vysmaw_message_queue_timeout_pop(queue0, 100000)
 
             if msg is not NULL:
