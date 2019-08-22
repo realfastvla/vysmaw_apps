@@ -9,11 +9,11 @@ extensions = [
     Extension("*", ["*.pyx"],
         libraries = ["vysmaw", "vys", "python3.6m"],
 # standard build
-        include_dirs = ["/opt/cbe-local/include", ".", numpy.get_include()],
-        library_dirs = ["/home/cbe-master/wcbe/py/lib/python3.6/site-packages", "/opt/cbe-local/lib"],
+#        include_dirs = ["/opt/cbe-local/include", ".", numpy.get_include()],
+#        library_dirs = ["/home/cbe-master/wcbe/py/lib/python3.6/site-packages", "/opt/cbe-local/lib"],
 # development build
-#        include_dirs = ["/users/mpokorny/projects/vysmaw/src", "."],
-#        library_dirs = ["/users/mpokorny/projects/vysmaw/build/src", "."],
+        include_dirs = ["/users/mpokorny/projects/vysmaw/src", "."],
+        library_dirs = ["/users/mpokorny/projects/vysmaw/build/src", "."],
         extra_compile_args = ["-fno-strict-aliasing"])]
 
 
