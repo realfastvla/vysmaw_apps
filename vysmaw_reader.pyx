@@ -441,7 +441,8 @@ cdef class Reader(object):
 
         logger.info('Remaining messages in queue: {0}'.format(msgcnt))
         if msgcnt[VYSMAW_MESSAGE_END] == 0:
-            logger.warning('No VYSMAW_MESSAGE_END received. Process entering bad state')
+            logger.warning('No VYSMAW_MESSAGE_END received. Process entering bad state. Exiting...')
+            raise SystemExit
 
         if nulls:
             logger.info('and {0} NULLs'.format(nulls))
